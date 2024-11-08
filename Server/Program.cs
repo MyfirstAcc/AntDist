@@ -430,7 +430,6 @@ namespace AntColonyServer
         private List<int> CreateAndInitializeSockets(int maxAnts, int numSock)
         {
             
-
             List<int> nAnts = new List<int>();
             int baseNumAnt = maxAnts / numSock;
 
