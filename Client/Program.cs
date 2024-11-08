@@ -110,62 +110,76 @@ class AntClient
 
     public void Close()
     {
-        incomingStream.Close();
-        outgoingStream.Close();
-        incomingClient.Close();
-        outgoingClient.Close();
+        if (incomingStream != null) incomingStream.Close();
+        if (outgoingStream != null) outgoingStream.Close();
+        if (incomingClient != null) incomingClient.Close();
+        if (outgoingClient != null) outgoingClient.Close();
     }
 
     static void Main(string[] args)
     {
-        if (args.Length == 0)
-        {
-            Console.WriteLine("Нет аргументов командной строки.");
-            return;
-        }
-        int nid = int.Parse(args[0]);
         AntClient client = new AntClient();
-        client.ConnectToServer(IPAddress.Loopback, 7000 + nid, 6000 + nid);
-
-        client.SendMessage("READY");
-
-        var str = client.ReceivedMessage();
-        client.SplitInitData(str);
-
-        while (true)
+        try
         {
-            string inData = client.ReceivedMessage();
-            if (inData == "end")
+            if (args.Length == 0)
             {
-                break;
+                throw new Exception("Нет аргументов командной строки.");
             }
-            else
+            int nid = int.Parse(args[0]);
+            string ip = args[1];
+
+           
+            IPAddress ipa = IPAddress.Parse(ip);
+
+            client.ConnectToServer(ipa, 7000 + nid, 6000 + nid);
+
+            client.SendMessage("READY");
+
+            var str = client.ReceivedMessage();
+            client.SplitInitData(str);
+
+            while (true)
             {
-                client.pheromone = Array.ConvertAll(inData.Split(','), double.Parse);
-                int bestValue = 0;
-                int[] bestItems = new int[0];
-                int[] allValues = new int[client.nAnts];
-                int[][] allItems = new int[client.nAnts][];
-
-                for (int i = 0; i < client.nAnts; i++)
+                string inData = client.ReceivedMessage();
+                if (inData == "end")
                 {
-                    (List<int> chosenItems, int currentValue) = client.AntSolution();
-                    allValues[i] = currentValue;
-                    allItems[i] = chosenItems.ToArray();
-
-                    if (currentValue > bestValue)
-                    {
-                        bestValue = currentValue;
-                        bestItems = chosenItems.ToArray();
-                    }
+                    break;
                 }
+                else
+                {
+                    client.pheromone = Array.ConvertAll(inData.Split(','), double.Parse);
+                    int bestValue = 0;
+                    int[] bestItems = new int[0];
+                    int[] allValues = new int[client.nAnts];
+                    int[][] allItems = new int[client.nAnts][];
 
-                string allItemsStr = string.Join(",", Array.ConvertAll(allItems, items => string.Join(" ", items)));
-                string toSend = $"{bestValue};{string.Join(" ", bestItems)};{string.Join(" ", allValues)};{allItemsStr}";
-                client.SendMessage(toSend);
+                    for (int i = 0; i < client.nAnts; i++)
+                    {
+                        (List<int> chosenItems, int currentValue) = client.AntSolution();
+                        allValues[i] = currentValue;
+                        allItems[i] = chosenItems.ToArray();
+
+                        if (currentValue > bestValue)
+                        {
+                            bestValue = currentValue;
+                            bestItems = chosenItems.ToArray();
+                        }
+                    }
+
+                    string allItemsStr = string.Join(",", Array.ConvertAll(allItems, items => string.Join(" ", items)));
+                    string toSend = $"{bestValue};{string.Join(" ", bestItems)};{string.Join(" ", allValues)};{allItemsStr}";
+                    client.SendMessage(toSend);
+                }
             }
         }
-
-        client.Close();
+        catch (Exception e)
+        {
+            Thread.Sleep(1000);
+            Console.WriteLine(e.Message);
+        }
+        finally
+        {
+            client.Close();
+        }
     }
 }
