@@ -1,0 +1,16 @@
+{
+  "ipClients": [ "DESKTOP-19B6D0D", "DESKTOP-196D01" ],
+  "maxAnts": 20,
+  "username": "Администратор",
+  "password": "admin",
+  "inPort": 6000,
+  "outport": 7000,
+  "maxIteration": 200,
+  "alpha": 1.0,
+  "beta": 5.0,
+  "Q": 100,
+  "RHO": 0.1,
+  "countSubjects": "1000",
+  "pathToEXE": "C:/temp/",
+  "nameFile": "Client.exe"
+}

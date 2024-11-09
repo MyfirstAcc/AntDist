@@ -1,13 +1,32 @@
-﻿using System.Diagnostics;
-using System.Net;
-using System.Net.Sockets;
-using System.Text;
+﻿using Microsoft.Extensions.Configuration;
+using System.Diagnostics;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
+using System.Net;
+using System.Net.Sockets;
 using System.Security;
+using System.Text;
 
 namespace AntColonyServer
 {
+    public class ServerConfig
+    {
+        public string[] IpClients { get; set; }
+        public int MaxAnts { get; set; }
+        public string Username { get; set; }
+        public string Password { get; set; }
+        public int InPort { get; set; }
+        public int OutPort { get; set; }
+        public int maxIteration { get; set; }
+        public double Alpha { get; set; }
+        public double Beta { get; set; }
+        public int Q { get; set; }
+        public double RHO { get; set; }
+        public int CountSubjects { get; set; }
+        public string PathToEXE { get; set; }
+        public string NameFile { get; set; }
+
+    }
 
     /// <summary>
     /// Алгоритм муравьиной оптимизации (Ant Colony Optimization)
@@ -15,8 +34,6 @@ namespace AntColonyServer
     /// </summary>
     public class ServerAnts
     {
-        private readonly string _path;  //путь до файла клиента
-        private int maxAnts;            // Количество муравьев
         private int numClients;         // Количество клиентов
         private double alpha;           // Влияние феромонов
         private double beta;            // Влияние эвристической информации
@@ -26,6 +43,7 @@ namespace AntColonyServer
         private int bestValue;
         private int maxIteration;       // Количество итераций
         private double[] pheromone;     // «привлекательность» каждого элемента или пути для муравьев
+        private List<IPAddress> ipClients;
 
         private List<TcpListener> incomingListeners = new List<TcpListener>(); // экземпляры прослушки на вход к клиенту
         private List<TcpListener> outgoingListeners = new List<TcpListener>(); // экземпляры прослушки на выход от клиента
@@ -35,22 +53,29 @@ namespace AntColonyServer
         private int outPort;
         private IPAddress ipAddress;
 
-        public ServerAnts(IPAddress iPAddress, int inPort, int outPort, int maxAnts = 20, int maxClients = 4, int countSubjects = 1000, int maxIteration = 100)
+        PowerShell psLocal;
+        ServerConfig serverConfig;
+        List<Pipeline> pipeline;
+        private List<Runspace> runspace;
+
+        public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig)
         {
-            this._path = @"./"; // Путь к Client.dll 
-            this.inPort = inPort;
-            this.outPort = outPort;
             this.ipAddress = iPAddress;
-            this.maxAnts = maxAnts;
-            this.numClients = maxClients;
-            this.countSubjects = countSubjects;
-            this.maxIteration = maxIteration;
-            this.alpha = 1.0;
-            this.beta = 5.0;
-            this.RHO = 0.1;
+            this.serverConfig = serverConfig;
+            this.numClients = serverConfig.IpClients.Length;
+            this.alpha = serverConfig.Alpha;
+            this.beta = serverConfig.Beta;
+            this.RHO = serverConfig.RHO;
+            this.Q = serverConfig.Q;
+            this.countSubjects = serverConfig.CountSubjects;
             this.bestValue = 0;
-            this.Q = 100;
+            this.maxIteration = serverConfig.maxIteration;
+            this.inPort = serverConfig.InPort;
+            this.outPort = serverConfig.OutPort;
             pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
+            pipeline = new List<Pipeline>(this.numClients);
+            runspace = new List<Runspace>(this.numClients);
+
         }
         /// <summary>
         /// Загрузка исходного набора данных
@@ -74,12 +99,12 @@ namespace AntColonyServer
             return (values, weights, weightLimit);
         }
 
-        
+
         public void StartServer()
         {
             var stopwatch = Stopwatch.StartNew();
-            var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);            
-            var nAnts = CreateAndInitializeSockets(maxAnts, numClients);
+            var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);
+            var nAnts = CreateAndInitializeSockets(serverConfig.MaxAnts, numClients);
             Console.WriteLine($"{new string('-', 32)}");
 
             stopwatch.Stop();
@@ -95,7 +120,7 @@ namespace AntColonyServer
 
                 byte[] buffer = new byte[1024];
                 int bytesRead = incomingStream.Read(buffer, 0, buffer.Length);
-                
+
                 if (bytesRead == 0) break;
 
                 string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
@@ -116,7 +141,7 @@ namespace AntColonyServer
             stopwatch.Start();
             for (int iter = 1; iter < maxIteration; iter++)
             {
-                
+
                 var (tmpBestValue, tmpBestItems, allValues, allItems) = OneStepAntColony();
 
                 if (tmpBestValue > bestValue)
@@ -129,7 +154,7 @@ namespace AntColonyServer
                 {
                     pheromone[i] = (1.0 - RHO) * pheromone[i];
                 }
-                for (int k = 0; k < maxAnts; k++)
+                for (int k = 0; k < serverConfig.MaxAnts; k++)
                 {
                     double sumValues = allValues.Sum();
                     foreach (var itemIndex in allItems[k])
@@ -149,91 +174,53 @@ namespace AntColonyServer
             Console.WriteLine($"--- Общая стоимость: {bestValue}");
             Console.WriteLine($"--- Время выполнения алгоритма: {methodRunTimer.TotalSeconds} с.");
             Console.WriteLine($"--- Общее время выполнения: {(clientStartTimer + methodRunTimer).TotalSeconds} с.");
+            //pipeline.Commands.AddScript($"Remove-Item -Path '{serverConfig.PathToEXE + serverConfig.NameFile}' -Force");
         }
 
-
-
-
-        //public void DeployAndExecuteRemoteApp(string remoteComputer, string localFilePath, string remotePath, int nClient, string username, string password)
-        //{
-        //    try
-        //    {
-        //        // Step 1: Копирование файла на удалённый компьютер
-        //        CopyFileToRemote(remoteComputer, localFilePath, remotePath, username, password);
-
-        //        // Step 2: Запуск приложения на удалённом компьютере
-        //        ExecuteRemoteApp(remoteComputer, remotePath, nClient, username, password);
-
-        //        // Step 3: Удаление файла после выполнения
-        //       // DeleteRemoteFile(remoteComputer, remotePath, username, password);
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        Console.WriteLine($"Ошибка при развертывании и выполнении удалённого приложения: {ex.Message}");
-        //    }
-        //}
-
-        //private void CopyFileToRemote(string remoteComputer, string localFilePath, string remotePath, string username, string password)
-        //{
-        //    string command = $@"\\{remoteComputer} -u {username} -p {password} cmd /c copy '{ localFilePath}' '{remotePath}'";
-        //    ExecutePsExecCommand(command);
-        //}
-
-        //private void ExecuteRemoteApp(string remoteComputer, string remotePath, int nClient, string username, string password)
-        //{
-        //    string command = $@"\\{remoteComputer} -u {username} -p {password} -d '{ remotePath}\' {nClient}";
-        //    ExecutePsExecCommand(command);
-        //}
-
-        //private void DeleteRemoteFile(string remoteComputer, string remotePath, string username, string password)
-        //{
-        //    string command = $@"{remoteComputer} -u {username} -p {password} cmd /c del '{ remotePath}'";
-        //    ExecutePsExecCommand(command);
-        //}
-
-        //private void ExecutePsExecCommand(string command)
-        //{
-        //    ProcessStartInfo startInfo = new ProcessStartInfo
-        //    {
-        //        FileName = psexecPath,
-        //        Arguments = command,
-        //        RedirectStandardOutput = true,
-        //        UseShellExecute = false,
-        //        CreateNoWindow = true,
-        //    };
-
-        //    using (Process process = new Process { StartInfo = startInfo })
-        //    {
-        //        process.Start();
-        //        string output = process.StandardOutput.ReadToEnd();
-        //        process.WaitForExit();
-        //        Console.WriteLine(output);
-        //    }
-        //}
-
-
-
-
-        public void DeployAndExecuteRemoteApp(string remoteComputer, string localFilePath, string remotePath, int nClient, string username)
+        public void DeployRemoteApp()
         {
-            // Step 1: Copy file to remote machine
-            string copyCommand = $"Copy-Item -Path {localFilePath} -Destination {remotePath}";
+            //string copyFileCommand = $@"
+            //        $session = New-PSSession -ComputerName '{remoteComputer}' -Credential (New-Object System.Management.Automation.PSCredential('{username}', (ConvertTo-SecureString '{password}' -AsPlainText -Force)));
+            //        Copy-Item -Path '{localFilePath}' -Destination '{remotePath}' -ToSession $session;
+            //  ";
 
+
+            //// Выполнение команды на локальной PowerShell-сессии
+            //var psLocal = PowerShell.Create();
+
+            //psLocal.AddScript(copyFileCommand);
+            //var resultsps = psLocal.Invoke();
+
+            //if (psLocal.Streams.Error.Count > 0)
+            //{
+            //    Console.WriteLine("Ошибка при копировании файла:");
+            //    foreach (var error in psLocal.Streams.Error)
+            //    {
+            //        Console.WriteLine(error.ToString());
+            //    }
+            //    return;
+            //}
+            //else
+            //{
+            //    Console.WriteLine($"Копирование файла на {username} завершено успешно.");
+        }
+
+        public void DeployAndExecuteRemoteApp(string remoteComputer, string localFilePath, string remotePath, int nClient, string username, string password)
+        {
+            SecureString securePassword = new SecureString();
+            foreach (char c in password)
+                securePassword.AppendChar(c);
+            securePassword.MakeReadOnly();
+
+
+            //}
             // Step 2: Run the exe file on the remote machine
-            string executeCommand = $"Start-Process -FilePath {remotePath} -ArgumentList \"{nClient} {ipAddress}\"";
-
-            // Step 3: Delete the exe file after execution
-            string deleteCommand = $"Remove-Item -Path '{remotePath}' -Force";
+            string executeCommand = $"Start-Process -FilePath {remotePath + serverConfig.NameFile} -ArgumentList \"{nClient} {ipAddress}\"";
 
             // Combine the commands
             string script = $"{executeCommand}";
 
             // Создаем объект SecureString для пароля
-            SecureString securePassword = new SecureString();
-            foreach (char c in "admin")
-                securePassword.AppendChar(c);
-            securePassword.MakeReadOnly();
-            
 
             // Создаем объект PSCredential с именем пользователя и паролем
             var credential = new PSCredential(username, securePassword);
@@ -244,99 +231,22 @@ namespace AntColonyServer
                 AuthenticationMechanism = AuthenticationMechanism.Negotiate
             };
 
+
             // Открываем удалённое подключение и выполняем команды
-            using (var runspace = RunspaceFactory.CreateRunspace(connectionInfo))
+            runspace.Add(RunspaceFactory.CreateRunspace(connectionInfo));
+
+            runspace[nClient].Open();
+            pipeline.Add(runspace[nClient].CreatePipeline());
+
+
+            pipeline[nClient].Commands.AddScript(script);
+            var results = pipeline[nClient].Invoke();
+
+            foreach (var item in results)
             {
-
-                runspace.Open();
-                var pipeline = runspace.CreatePipeline();
-                {
-
-                    pipeline.Commands.AddScript(script);
-                    var results = pipeline.Invoke();
-
-                    foreach (var item in results)
-                    {
-                        Console.WriteLine(item);
-                    }
-                }
+                Console.WriteLine(item);
             }
-            
-           
-        }
 
-        public void DeployAndExecuteRemoteApp(string remoteComputer, string localFilePath, string remotePath, int nClient, decimal d)
-        {
-            string passwordS = "admin";
-            SecureString passwordSecure = new SecureString();
-            foreach (var item in passwordS)
-            {
-                passwordSecure.AppendChar(item);
-            }
-            passwordSecure.MakeReadOnly();
-
-            //// Step 1: Copy file to remote machine
-            //string copyCommand = $"Copy-Item -Path '{localFilePath}' -Destination '{remotePath}'";
-
-            //// Step 2: Run the exe file on the remote machine
-            //string executeCommand = $"Start-Process -FilePath '{remotePath}' -ArgumentList '{nClient} {ipAddress}'";
-
-            //// Step 3: Delete the exe file after execution
-            ////string deleteCommand = $"Remove-Item -Path '{remotePath}' -Force";
-
-            //// Combine the commands
-            //string script = $"{copyCommand}; {executeCommand}; ";
-
-
-
-            var credential = new PSCredential("Администратор", passwordSecure);
-
-
-            var connectionInfo = new WSManConnectionInfo(new Uri($"http://{remoteComputer}:5985/wsman"), "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
-                credential);
-            // Создаем и открываем удалённую сессию
-            using (var runspace = RunspaceFactory.CreateRunspace(connectionInfo))
-            {
-                runspace.Open();
-
-                using (var ps = PowerShell.Create())
-                {
-                    ps.Runspace = runspace;
-
-                    // Step 1: Создание сессии
-                    ps.AddCommand("New-PSSession")
-                      .AddParameter("ComputerName", remoteComputer)
-                      .AddParameter("Credential", credential);
-                    var sessions = ps.Invoke();
-                    //if (sessions.Count == 0)
-                    //{
-                    //    Console.WriteLine("Failed to create remote session.");
-                    //    return;
-                    //}
-                    var session = sessions[0];
-
-                    // Step 2: Копирование файла в сессию
-                    ps.Commands.Clear();
-                    ps.AddCommand("Copy-Item")
-                      .AddParameter("Path", localFilePath)
-                      .AddParameter("Destination", remotePath)
-                      .AddParameter("ToSession", session);
-                    ps.Invoke();
-
-                    // Step 3: Выполнение exe файла
-                    string executeCommand = $"Start-Process -FilePath '{remotePath}' -ArgumentList '{nClient}'";
-                    ps.Commands.Clear();
-                    ps.AddScript(executeCommand);
-                    ps.Invoke();
-
-                    // Step 4: Завершение сессии
-                    ps.Commands.Clear();
-                    ps.AddCommand("Remove-PSSession")
-                      .AddParameter("Session", session);
-                    ps.Invoke();
-                }
-
-            }
         }
 
         /// <summary>
@@ -358,13 +268,19 @@ namespace AntColonyServer
             for (int i = 0; i < numClients; i++)
             {
                 string response = ReceiveData(incomingClients[i]);
-
                 var dataParts = response.Split(';');
 
-                // Получаем и разбираем данные, как и раньше
-                int bestValueForClient = int.Parse(dataParts[0]);
-                var bestItemsForClient = dataParts[1].Split(' ').Select(int.Parse).ToList();
-                var allValuesForClient = dataParts[2].Split(' ').Select(int.Parse).ToList();
+                int parseInt = 0;
+                int.TryParse(dataParts[0], out parseInt);
+                int bestValueForClient = parseInt;
+                var bestItemsForClient = dataParts[1]
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(int.Parse)
+                .ToList();
+                var allValuesForClient = dataParts[1]
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(int.Parse)
+                .ToList();
                 var allItemsTemp = ParseAntSelections(dataParts[3]);
 
                 // Добавляем значения, чтобы собрать данные от всех клиентов
@@ -386,7 +302,6 @@ namespace AntColonyServer
             List<int[]> result = antSelections.Select(antSelection => antSelection.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray()).ToList();
             return result;
         }
-
 
         /// <summary>
         /// Метод для получения TCPClient, подключение клиентов
@@ -429,7 +344,7 @@ namespace AntColonyServer
         /// <returns></returns>
         private List<int> CreateAndInitializeSockets(int maxAnts, int numSock)
         {
-            
+
             List<int> nAnts = new List<int>();
             int baseNumAnt = maxAnts / numSock;
 
@@ -444,11 +359,10 @@ namespace AntColonyServer
             Console.WriteLine("Количество муравьев на клиенте: [");
             nAnts.ForEach(x => Console.Write(" " + x));
             Console.WriteLine("\n]");
-            Console.WriteLine($"Количество итераций: {maxIteration}");
 
             for (int i = 0; i < numSock; i++)
             {
-               
+
                 TcpListener incomingListener = new TcpListener(this.ipAddress, inPort);
                 incomingListener.Start();
                 incomingListeners.Add(incomingListener);
@@ -462,36 +376,53 @@ namespace AntColonyServer
                 inPort = inPort + 1;
                 outPort = outPort + 1;
 
-                DeployAndExecuteRemoteApp("DESKTOP-19B6D0D", "C:/test.txt", "C:/temp/net8.0/Client.exe", i, "Администратор");
-                //StartClientProcess(i);
+                DeployAndExecuteRemoteApp(serverConfig.IpClients[i], Directory.GetCurrentDirectory() + "/Client.exe", serverConfig.PathToEXE, i, serverConfig.Username, serverConfig.Password);
             }
 
             return nAnts;
         }
 
 
-        /// <summary>
-        /// Запуск клиентских процессов
-        /// </summary>
-        /// <param name="clientId">id клиента </param>
-        private void StartClientProcess(int clientId)
-        {
-            Process clientProcess = new Process();
-            clientProcess.StartInfo.FileName = "Client.exe"; // Укажите имя вашего .exe файла
-            clientProcess.StartInfo.Arguments = $"{clientId} {ipAddress}"; // Аргументы, которые передаются .exe
-            clientProcess.StartInfo.WorkingDirectory = _path; // Папка, где находится .exe
-            clientProcess.Start();
-        }
         public void CloseServer()
         {
+            // Закрытие всех pipeline
+            if (pipeline != null)
+            {
+                foreach (var pipe in pipeline)
+                {
+                    if (pipe != null)
+                    {
+                        pipe.Dispose();
+                    }
+                }
+                pipeline.Clear();
+                pipeline = null;
+            }
+
+            // Закрытие всех runspace
+            if (runspace != null)
+            {
+                foreach (var space in runspace)
+                {
+                    if (space != null)
+                    {
+                        space.Close();
+                        space.Dispose();
+                    }
+                }
+                runspace.Clear();
+                runspace = null;
+            }
+
+
             // Закрываем все входящие слушатели
             if (incomingListeners != null)
             {
                 foreach (var listener in incomingListeners)
                 {
-                    listener.Stop(); 
+                    listener.Stop();
                 }
-                incomingListeners.Clear(); 
+                incomingListeners.Clear();
             }
 
 
@@ -499,9 +430,9 @@ namespace AntColonyServer
             {
                 foreach (var listener in outgoingListeners)
                 {
-                    listener.Stop(); 
+                    listener.Stop();
                 }
-                outgoingListeners.Clear(); 
+                outgoingListeners.Clear();
             }
 
             // Закрываем все клиенсткие сокеты
@@ -509,21 +440,20 @@ namespace AntColonyServer
             {
                 foreach (var client in incomingClients)
                 {
-                    client.Close(); 
+                    client.Close();
                 }
-                incomingClients.Clear(); 
+                incomingClients.Clear();
             }
 
             if (outgoingClients != null)
             {
                 foreach (var client in outgoingClients)
                 {
-                    client.Close(); 
+                    client.Close();
                 }
-                outgoingClients.Clear(); 
+                outgoingClients.Clear();
             }
         }
-
 
     }
 
@@ -531,16 +461,23 @@ namespace AntColonyServer
     {
         static void Main(string[] args)
         {
-            Console.WriteLine($"{new string('-',32)}");
+
+            Console.WriteLine($"{new string('-', 32)}");
             Console.WriteLine("Алгоритм муравьиной оптимизации");
-            Console.WriteLine();
+            Console.WriteLine(Directory.GetCurrentDirectory());
+
             try
             {
-                int maxAnts = GetUserInput("Введите кол-во муравьев: ");
-                int maxClients = GetUserInput("Введите кол-во клиентов: ");
-                int maxIter = GetUserInput("Введите кол-во итераций: ");
-                ServerAnts server = new ServerAnts(IPAddress.Parse("192.168.1.30"), 6000, 7000, maxAnts, maxClients, 1000, maxIter);
+                var configuration = new ConfigurationBuilder()
+         .SetBasePath(Directory.GetCurrentDirectory())
+         .AddJsonFile("config.json", optional: false, reloadOnChange: true)
+         .Build();
+
+                var config = configuration.Get<ServerConfig>();
+                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config);
                 Console.WriteLine($"{new string('-', 32)}");
+                ShowConfig(config);
+               
                 try
                 {
                     server.StartServer();
@@ -548,57 +485,55 @@ namespace AntColonyServer
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine(e.ToString());
                     server.CloseServer();
+                    throw new Exception(e.Message);
                 }
                 finally
                 {
                     server.CloseServer();
                 }
-               
-                
+
             }
             catch (Exception e)
             {
                 Console.WriteLine(e.ToString());
             }
-            finally
-            {
-                
-            }
 
             Console.ReadLine();
         }
-        static int GetUserInput(string s)
+ 
+        static void ShowConfig(ServerConfig serverConfig)
         {
-            int result = 0;
-            while (true)
-            {
-                try
-                {
-                    int res = Math.Sign(result = ReadInt(s));
-                    if (res == 1)
-                    {
-                        break;
-                    }
-                    else
-                    {
-                        throw new Exception("Значение должно быть > 0");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Некорректный ввод: {ex.Message}");
-                }
-            }
-            return result;
-
+            Console.WriteLine("{0,30}","-----Конфигурация-----");
+            Console.WriteLine("{0,-30} {1}", "Имена компьютеров:", string.Join(", ", serverConfig.IpClients));
+            Console.WriteLine("{0,-30} {1}", "Максимум муравьев:", serverConfig.MaxAnts);
+            Console.WriteLine("{0,-30} {1}", "Username:", serverConfig.Username);
+            Console.WriteLine("{0,-30} {1}", "Password:", serverConfig.Password);
+            Console.WriteLine("{0,-30} {1}", "Входящий порт:", serverConfig.InPort);
+            Console.WriteLine("{0,-30} {1}", "Выходящий порт:", serverConfig.OutPort);
+            Console.WriteLine("{0,-30} {1}", "Максимум итераций:", serverConfig.maxIteration);
+            Console.WriteLine("{0,-30} {1}", "Alpha:", serverConfig.Alpha);
+            Console.WriteLine("{0,-30} {1}", "Beta:", serverConfig.Beta);
+            Console.WriteLine("{0,-30} {1}", "Q:", serverConfig.Q);
+            Console.WriteLine("{0,-30} {1}", "RHO:", serverConfig.RHO);
+            Console.WriteLine("{0,-30} {1}", "Количество предметов:", serverConfig.CountSubjects);
+            Console.WriteLine("{0,-30} {1}", "Путь к exe на удаленном хосте:", serverConfig.PathToEXE);
+            Console.WriteLine("{0,-30} {1}", "Имя файла:", serverConfig.NameFile);
+            Console.WriteLine($"{new string('-', 32)}");
         }
 
-        static int ReadInt(string prompt)
+
+        static string GetLocalIPAddress()
         {
-            Console.Write(prompt);
-            return int.Parse(Console.ReadLine());
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork) // IPv4
+                {
+                    return ip.ToString();
+                }
+            }
+            throw new Exception("Локальный IP-адрес не найден!");
         }
     }
 

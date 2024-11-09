@@ -1,11 +1,6 @@
-﻿using Microsoft.VisualBasic;
-using System;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using System.Linq;
 
 class AntClient
 {
@@ -174,8 +169,8 @@ class AntClient
         }
         catch (Exception e)
         {
-            Thread.Sleep(1000);
             Console.WriteLine(e.Message);
+            Thread.Sleep(1000);
         }
         finally
         {
