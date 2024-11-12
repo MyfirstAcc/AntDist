@@ -17,7 +17,14 @@ class AntClient
     private int nAnts;
     public double[] pheromone;
 
-    public void ConnectToServer(IPAddress serverAddress, int incomingPort, int outgoingPort)
+    public void ConnectToServer(IPAddress serverAddress, int Port)
+    {
+        incomingClient = new TcpClient();
+        incomingClient.Connect(serverAddress, Port);
+        
+    }
+
+    public void ReconnectToServer(IPAddress serverAddress, int incomingPort, int outgoingPort)
     {
         incomingClient = new TcpClient();
         outgoingClient = new TcpClient();
@@ -29,15 +36,24 @@ class AntClient
         incomingStream = incomingClient.GetStream();
         outgoingStream = outgoingClient.GetStream();
 
-        //Console.WriteLine($"Подключен к серверу на обоих портах:({((IPEndPoint)incomingClient.Client.LocalEndPoint).Port})" +
-        //$"--->({incomingPort}) ({((IPEndPoint)outgoingClient.Client.LocalEndPoint).Port})--->({outgoingPort})");
+        Console.WriteLine($"Подключен к серверу на обоих портах:({((IPEndPoint)incomingClient.Client.LocalEndPoint).Port})" +
+        $"--->({incomingPort}) ({((IPEndPoint)outgoingClient.Client.LocalEndPoint).Port})--->({outgoingPort})");
     }
 
     public void SendMessage(string message)
     {
+
         // Отправка сообщения на входящий порт сервера
         byte[] messageBytes = Encoding.UTF8.GetBytes(message);
         outgoingStream.Write(messageBytes, 0, messageBytes.Length);
+    }
+
+
+    public void SendMessage(TcpClient outSock, string message)
+    {
+        var outStream = outSock.GetStream();
+        byte[] messageBytes = Encoding.UTF8.GetBytes(message);
+        outStream.Write(messageBytes, 0, messageBytes.Length);
     }
 
     public void SplitInitData(string initData)
@@ -49,6 +65,15 @@ class AntClient
         alpha = double.Parse(dataParts[3]);
         beta = double.Parse(dataParts[4]);
         nAnts = int.Parse(dataParts[5]);
+    }
+
+    public string ReceivedMessage(TcpClient outSock)
+    {
+        var inStream = outSock.GetStream();
+        // Чтение ответа из потока исходящих сообщений
+        byte[] buffer = new byte[65000];
+        int bytesRead = inStream.Read(buffer, 0, buffer.Length);
+        return Encoding.UTF8.GetString(buffer, 0, bytesRead);
     }
 
     public string ReceivedMessage()
@@ -105,14 +130,32 @@ class AntClient
 
     public void Close()
     {
-        if (incomingStream != null) incomingStream.Close();
-        if (outgoingStream != null) outgoingStream.Close();
-        if (incomingClient != null) incomingClient.Close();
-        if (outgoingClient != null) outgoingClient.Close();
+        if (incomingStream != null)
+        {
+            incomingStream.Close();
+            incomingStream = null;
+        }
+        if (outgoingStream != null)
+        {
+            outgoingStream.Close();
+            outgoingStream = null;
+        }
+        if (incomingClient != null)
+        {
+            incomingClient.Close();
+            incomingClient = null;
+        }
+        if (outgoingClient != null)
+        {
+            outgoingClient.Close();
+            outgoingClient = null;
+
+        }
     }
 
     static void Main(string[] args)
     {
+        Console.ReadLine();
         AntClient client = new AntClient();
         try
         {
@@ -122,12 +165,17 @@ class AntClient
             }
             int nid = int.Parse(args[0]);
             string ip = args[1];
-
-           
+            
             IPAddress ipa = IPAddress.Parse(ip);
+            client.ConnectToServer(ipa, nid);
+            client.SendMessage(client.incomingClient, "Hello!");
 
-            client.ConnectToServer(ipa, 7000 + nid, 6000 + nid);
+            string data = client.ReceivedMessage(client.incomingClient); 
+            int[] arr = Array.ConvertAll(data.Split(" "), int.Parse);
+            client.Close();
+            Console.WriteLine($"Reconnect to {arr[1]} {arr[0]}");
 
+            client.ReconnectToServer(ipa, arr[1], arr[0]);
             client.SendMessage("READY");
 
             var str = client.ReceivedMessage();
