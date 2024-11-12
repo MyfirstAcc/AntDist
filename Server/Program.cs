@@ -26,6 +26,8 @@ namespace AntColonyServer
         public string PathToEXE { get; set; }
         public string NameFile { get; set; }
 
+        public int Port { get; set; }
+
     }
 
     /// <summary>
@@ -34,6 +36,7 @@ namespace AntColonyServer
     /// </summary>
     public class ServerAnts
     {
+        private int port;
         private int numClients;         // Количество клиентов
         private double alpha;           // Влияние феромонов
         private double beta;            // Влияние эвристической информации
@@ -52,7 +55,8 @@ namespace AntColonyServer
         private int inPort;
         private int outPort;
         private IPAddress ipAddress;
-
+        private List<TcpListener> FirstListeners = new List<TcpListener>();
+        private List<TcpClient> FirstClients = new List<TcpClient>();
         PowerShell psLocal;
         ServerConfig serverConfig;
         List<Pipeline> pipeline;
@@ -70,6 +74,7 @@ namespace AntColonyServer
             this.countSubjects = serverConfig.CountSubjects;
             this.bestValue = 0;
             this.maxIteration = serverConfig.maxIteration;
+            this.port = serverConfig.Port;
             this.inPort = serverConfig.InPort;
             this.outPort = serverConfig.OutPort;
             pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
@@ -103,10 +108,10 @@ namespace AntColonyServer
         public void StartServer()
         {
             var stopwatch = Stopwatch.StartNew();
-            var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);
-            var nAnts = CreateAndInitializeSockets(serverConfig.MaxAnts, numClients);
+            var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);           
+            var nAnts = this.CountAntsPerClients(serverConfig.MaxAnts, numClients);
             Console.WriteLine($"{new string('-', 32)}");
-
+            StartOnePort();
             stopwatch.Stop();
             TimeSpan clientStartTimer = stopwatch.Elapsed;
 
@@ -175,7 +180,56 @@ namespace AntColonyServer
             Console.WriteLine($"--- Время выполнения алгоритма: {methodRunTimer.TotalSeconds} с.");
             Console.WriteLine($"--- Общее время выполнения: {(clientStartTimer + methodRunTimer).TotalSeconds} с.");
             //pipeline.Commands.AddScript($"Remove-Item -Path '{serverConfig.PathToEXE + serverConfig.NameFile}' -Force");
+
         }
+
+
+        private void StartOnePort()
+        {
+            bool flag;
+            do
+            {
+                try
+                {
+                    TcpListener listener = new TcpListener(ipAddress, port);
+                    listener.Start();
+                    FirstListeners.Add(listener);
+                    Console.WriteLine($"Сервер запущен на порту: {port}");
+                    flag = false;
+                }
+                catch (SocketException ex)
+                {
+                    Console.WriteLine($"Ошибка при запуске слушателя на порту {port}: {ex.Message}");
+                    port++;
+                    flag = true;
+                }
+
+            } while (flag);
+
+
+            
+
+            for (int i = 0; i < FirstListeners.Count; i++)
+            {
+                TcpClient FirstClient = FirstListeners[i].AcceptTcpClient();
+                FirstClients.Add(FirstClient);
+            }
+            CreateAndInitializeSockets(numClients);
+
+            for (int i = 0; i < FirstListeners.Count; i++)
+            {
+                string data = ReceiveData(FirstClients[i]);
+                if (data == "Hello!")
+                {
+                    TcpListener inc = incomingListeners[i];
+                    TcpListener outc = outgoingListeners[i];
+
+                    SendData(FirstClients[i], string.Join(' ', ((IPEndPoint)inc.LocalEndpoint).Port, ((IPEndPoint)outc.LocalEndpoint).Port));
+                }
+            }
+
+        }
+
 
         public void DeployRemoteApp()
         {
@@ -205,7 +259,7 @@ namespace AntColonyServer
             //    Console.WriteLine($"Копирование файла на {username} завершено успешно.");
         }
 
-        public void DeployAndExecuteRemoteApp(string remoteComputer, string localFilePath, string remotePath, int nClient, string username, string password)
+        private void DeployAndExecuteRemoteApp(string remoteComputer, string localFilePath, string remotePath, int nClient, string username, string password)
         {
             SecureString securePassword = new SecureString();
             foreach (char c in password)
@@ -312,11 +366,11 @@ namespace AntColonyServer
             {
                 TcpClient incomingClient = incomingListeners[i].AcceptTcpClient();
                 incomingClients.Add(incomingClient);
-                //Console.WriteLine($"Клиент {i} подключился к входящему порту {((IPEndPoint)incomingClient.Client.LocalEndPoint).Port}");
+                Console.WriteLine($"Клиент {i} подключился к входящему порту {((IPEndPoint)incomingClient.Client.LocalEndPoint).Port}");
 
                 TcpClient outgoingClient = outgoingListeners[i].AcceptTcpClient();
                 outgoingClients.Add(outgoingClient);
-                //Console.WriteLine($"Клиент {i} подключился к исходящему порту {((IPEndPoint)outgoingClient.Client.LocalEndPoint).Port}");
+                Console.WriteLine($"Клиент {i} подключился к исходящему порту {((IPEndPoint)outgoingClient.Client.LocalEndPoint).Port}");
             }
         }
 
@@ -339,16 +393,42 @@ namespace AntColonyServer
         /// <summary>
         /// Создание клиент-серверной архитектуры распределенной системы, запуск клиентов
         /// </summary>
-        /// <param name="maxAnts">кол-во муравьев на клиенте</param>
         /// <param name="numSock">кол-во сокетов(листенеров) клиента</param>
         /// <returns></returns>
-        private List<int> CreateAndInitializeSockets(int maxAnts, int numSock)
-        {
+        private void CreateAndInitializeSockets(int numSock)
+        { 
+            for (int i = 0; i < numSock; i++)
+            {
+                try
+                {
+                    TcpListener incomingListener = new TcpListener(ipAddress, inPort);
+                    incomingListener.Start();
+                    incomingListeners.Add(incomingListener);
+                    Console.WriteLine($"Входящий слушатель запущен на порту {((IPEndPoint)incomingListener.LocalEndpoint).Port}");
 
+                    TcpListener outgoingListener = new TcpListener(ipAddress, outPort);
+                    outgoingListener.Start();
+                    outgoingListeners.Add(outgoingListener);
+                    Console.WriteLine($"Исходящий слушатель запущен на порту {((IPEndPoint)outgoingListener.LocalEndpoint).Port}");
+                    outPort = outPort + 1;
+                    inPort = inPort + 1;
+                }
+                catch (SocketException ex)
+                {
+                    Console.WriteLine($"Ошибка при запуске входящего слушателя на порту {inPort}: {ex.Message}");
+                    outPort = outPort + 1;
+                    inPort = inPort + 1;
+                    i--;
+                    continue;
+                }              
+            }
+        }
+
+        private List<int> CountAntsPerClients(int maxAnts,int numSock)
+        {
             List<int> nAnts = new List<int>();
             int baseNumAnt = maxAnts / numSock;
 
-            // TO DO - отдельной функцией 
             nAnts = Enumerable.Repeat(baseNumAnt, numSock).ToList();
 
             int addAnt = maxAnts % numSock;
@@ -359,29 +439,8 @@ namespace AntColonyServer
             Console.WriteLine("Количество муравьев на клиенте: [");
             nAnts.ForEach(x => Console.Write(" " + x));
             Console.WriteLine("\n]");
-
-            for (int i = 0; i < numSock; i++)
-            {
-
-                TcpListener incomingListener = new TcpListener(this.ipAddress, inPort);
-                incomingListener.Start();
-                incomingListeners.Add(incomingListener);
-                Console.WriteLine($"Входящий слушатель запущен на порту {((IPEndPoint)incomingListener.LocalEndpoint).Port}");
-
-                TcpListener outgoingListener = new TcpListener(this.ipAddress, outPort);
-                outgoingListener.Start();
-                outgoingListeners.Add(outgoingListener);
-                Console.WriteLine($"Исходящий слушатель запущен на порту {((IPEndPoint)outgoingListener.LocalEndpoint).Port}");
-
-                inPort = inPort + 1;
-                outPort = outPort + 1;
-
-                DeployAndExecuteRemoteApp(serverConfig.IpClients[i], Directory.GetCurrentDirectory() + "/Client.exe", serverConfig.PathToEXE, i, serverConfig.Username, serverConfig.Password);
-            }
-
             return nAnts;
         }
-
 
         public void CloseServer()
         {
