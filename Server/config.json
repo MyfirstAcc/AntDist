@@ -1,5 +1,5 @@
 {
-  "ipClients": [ "DESKTOP-19B6D0D", "DESKTOP-196D01" ],
+  "ipClients": [ "DESKTOP-19B6D0D" ],
   "maxAnts": 20,
   "username": "Администратор",
   "password": "admin",
@@ -12,5 +12,6 @@
   "RHO": 0.1,
   "countSubjects": "1000",
   "pathToEXE": "C:/temp/",
-  "nameFile": "Client.exe"
+  "nameFile": "Client.exe",
+  "port" : 6500
 }
