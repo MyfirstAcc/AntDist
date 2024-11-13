@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using Humanizer;
+using Microsoft.Extensions.Configuration;
 using System.Diagnostics;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
@@ -9,9 +10,13 @@ using System.Text;
 
 namespace AntColonyServer
 {
+
+
+    // Более-менее рабочая версия 
+    //код - рука лицо... xD
     public class ServerConfig
     {
-        public string[] IpClients { get; set; }
+        public string[] NameClients { get; set; }
         public int MaxAnts { get; set; }
         public string Username { get; set; }
         public string Password { get; set; }
@@ -26,9 +31,31 @@ namespace AntColonyServer
         public string PathToEXE { get; set; }
         public string NameFile { get; set; }
 
-        public int Port { get; set; }
+        public bool LocalTest { get; set; }
+        public bool UploadFile { get; set; }
+
+        public ServerConfig()
+        {
+            NameClients ??= new string[0];
+            MaxAnts = 20;
+            Username = "";
+            Password = "";
+            InPort = 8080;
+            OutPort = 9090;
+            maxIteration = 100;
+            Alpha = 1.0;
+            Beta = 5.0;
+            Q = 100;
+            RHO = 0.1;
+            CountSubjects = 1000;
+            PathToEXE = "C:\\temp";
+            NameFile = "Client.exe";
+            LocalTest = true;
+            UploadFile = false;
+        }
 
     }
+
 
     /// <summary>
     /// Алгоритм муравьиной оптимизации (Ant Colony Optimization)
@@ -47,7 +74,7 @@ namespace AntColonyServer
         private int maxIteration;       // Количество итераций
         private double[] pheromone;     // «привлекательность» каждого элемента или пути для муравьев
         private List<IPAddress> ipClients;
-
+        // TO DO - ПЕРЕПИСАТЬ НА HASHTABLE
         private List<TcpListener> incomingListeners = new List<TcpListener>(); // экземпляры прослушки на вход к клиенту
         private List<TcpListener> outgoingListeners = new List<TcpListener>(); // экземпляры прослушки на выход от клиента
         private List<TcpClient> incomingClients = new List<TcpClient>();       // экземпляры обмена данными на вход клиента
@@ -55,8 +82,7 @@ namespace AntColonyServer
         private int inPort;
         private int outPort;
         private IPAddress ipAddress;
-        private List<TcpListener> FirstListeners = new List<TcpListener>();
-        private List<TcpClient> FirstClients = new List<TcpClient>();
+
         PowerShell psLocal;
         ServerConfig serverConfig;
         List<Pipeline> pipeline;
@@ -66,7 +92,7 @@ namespace AntColonyServer
         {
             this.ipAddress = iPAddress;
             this.serverConfig = serverConfig;
-            this.numClients = serverConfig.IpClients.Length;
+            this.numClients = serverConfig.NameClients.Length == 0 ? 4: serverConfig.NameClients.Length;
             this.alpha = serverConfig.Alpha;
             this.beta = serverConfig.Beta;
             this.RHO = serverConfig.RHO;
@@ -74,7 +100,6 @@ namespace AntColonyServer
             this.countSubjects = serverConfig.CountSubjects;
             this.bestValue = 0;
             this.maxIteration = serverConfig.maxIteration;
-            this.port = serverConfig.Port;
             this.inPort = serverConfig.InPort;
             this.outPort = serverConfig.OutPort;
             pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
@@ -104,19 +129,33 @@ namespace AntColonyServer
             return (values, weights, weightLimit);
         }
 
+        private void StartClientProcess(int clientId)
+        {
+            Process clientProcess = new Process();
+            clientProcess.StartInfo.FileName = serverConfig.NameFile;
+            TcpListener inc = this.incomingListeners[clientId];
+            TcpListener outc = this.outgoingListeners[clientId];
+            clientProcess.StartInfo.Arguments = $"{ipAddress} {((IPEndPoint)inc.LocalEndpoint).Port} {((IPEndPoint)outc.LocalEndpoint).Port}";
+            clientProcess.StartInfo.WorkingDirectory = Directory.GetCurrentDirectory();
+            clientProcess.Start();
+        }
 
         public void StartServer()
         {
             var stopwatch = Stopwatch.StartNew();
-            var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);           
-            var nAnts = this.CountAntsPerClients(serverConfig.MaxAnts, numClients);
+            var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);
+            var nAnts = CountAntsPerClients(serverConfig.MaxAnts, numClients);
+            CreateAndInitializeSockets(numClients);
+            ChooseAndRunClients();
             Console.WriteLine($"{new string('-', 32)}");
-            StartOnePort();
+
+            
             stopwatch.Stop();
             TimeSpan clientStartTimer = stopwatch.Elapsed;
 
             Console.WriteLine($"--- Время запуска клиентских сокетов : {clientStartTimer.TotalSeconds} с.");
             AcceptClients();
+
 
             for (int i = 0; i < outgoingClients.Count; i++)
             {
@@ -184,97 +223,78 @@ namespace AntColonyServer
         }
 
 
-        private void StartOnePort()
+        private void ChooseAndRunClients()
         {
-            bool flag;
-            do
+            if (serverConfig.UploadFile == true)
             {
-                try
+                for (int i = 0; i < numClients; i++)
                 {
-                    TcpListener listener = new TcpListener(ipAddress, port);
-                    listener.Start();
-                    FirstListeners.Add(listener);
-                    Console.WriteLine($"Сервер запущен на порту: {port}");
-                    flag = false;
-                }
-                catch (SocketException ex)
-                {
-                    Console.WriteLine($"Ошибка при запуске слушателя на порту {port}: {ex.Message}");
-                    port++;
-                    flag = true;
-                }
 
-            } while (flag);
+                    DeployRemoteApp(serverConfig.NameClients[i], Path.Combine(serverConfig.PathToEXE.ToString(),
+                    serverConfig.NameFile),Path.Combine(Directory.GetCurrentDirectory(),
+                        serverConfig.NameFile), i, serverConfig.Username, serverConfig.Password);
 
-
-            
-
-            for (int i = 0; i < FirstListeners.Count; i++)
-            {
-                TcpClient FirstClient = FirstListeners[i].AcceptTcpClient();
-                FirstClients.Add(FirstClient);
-            }
-            CreateAndInitializeSockets(numClients);
-
-            for (int i = 0; i < FirstListeners.Count; i++)
-            {
-                string data = ReceiveData(FirstClients[i]);
-                if (data == "Hello!")
-                {
-                    TcpListener inc = incomingListeners[i];
-                    TcpListener outc = outgoingListeners[i];
-
-                    SendData(FirstClients[i], string.Join(' ', ((IPEndPoint)inc.LocalEndpoint).Port, ((IPEndPoint)outc.LocalEndpoint).Port));
                 }
             }
 
+            for (int i = 0; i <numClients; i++)
+            {              
+                if (serverConfig.LocalTest == true)
+                {
+                    StartClientProcess(i);
+                }
+                else
+                {                   
+                    ExecuteRemoteApp(serverConfig.NameClients[i], Path.Combine(serverConfig.PathToEXE, 
+                        serverConfig.NameFile),i,serverConfig.Username,serverConfig.Password);
+                }
+            }
         }
 
-
-        public void DeployRemoteApp()
+        public void DeployRemoteApp(string remoteComputer, string remotePath, string localFilePath, int i, string username, string password)
         {
-            //string copyFileCommand = $@"
-            //        $session = New-PSSession -ComputerName '{remoteComputer}' -Credential (New-Object System.Management.Automation.PSCredential('{username}', (ConvertTo-SecureString '{password}' -AsPlainText -Force)));
-            //        Copy-Item -Path '{localFilePath}' -Destination '{remotePath}' -ToSession $session;
-            //  ";
+
+            ///
+            string copyFileCommand = $@"
+                    $session = New-PSSession -ComputerName '{remoteComputer}' -Credential (New-Object System.Management.Automation.PSCredential('{username}', (ConvertTo-SecureString '{password}' -AsPlainText -Force)));
+                    Copy-Item -Path '{localFilePath}' -Destination '{remotePath}' -ToSession $session;
+              ";
 
 
-            //// Выполнение команды на локальной PowerShell-сессии
-            //var psLocal = PowerShell.Create();
+            // Выполнение команды на локальной PowerShell-сессии - да, это очень странно, но работает xD
+            var psLocal = PowerShell.Create();
 
-            //psLocal.AddScript(copyFileCommand);
-            //var resultsps = psLocal.Invoke();
+            psLocal.AddScript(copyFileCommand);
+            var resultsps = psLocal.Invoke();
 
-            //if (psLocal.Streams.Error.Count > 0)
-            //{
-            //    Console.WriteLine("Ошибка при копировании файла:");
-            //    foreach (var error in psLocal.Streams.Error)
-            //    {
-            //        Console.WriteLine(error.ToString());
-            //    }
-            //    return;
-            //}
-            //else
-            //{
-            //    Console.WriteLine($"Копирование файла на {username} завершено успешно.");
+            if (psLocal.Streams.Error.Count > 0)
+            {
+                Console.WriteLine("Ошибка при копировании файла:");
+                foreach (var error in psLocal.Streams.Error)
+                {
+                    Console.WriteLine(error.ToString());
+                }
+                return;
+            }
+            else
+            {
+                Console.WriteLine($"Копирование файла на {serverConfig.NameClients[i]} завершено успешно.");
+            }
         }
 
-        private void DeployAndExecuteRemoteApp(string remoteComputer, string localFilePath, string remotePath, int nClient, string username, string password)
+        private void ExecuteRemoteApp(string remoteComputer, string remotePath, int idClient, string username, string password)
         {
             SecureString securePassword = new SecureString();
             foreach (char c in password)
                 securePassword.AppendChar(c);
             securePassword.MakeReadOnly();
 
-
-            //}
-            // Step 2: Run the exe file on the remote machine
-            string executeCommand = $"Start-Process -FilePath {remotePath + serverConfig.NameFile} -ArgumentList \"{nClient} {ipAddress}\"";
-
-            // Combine the commands
+            TcpListener inc = incomingListeners[idClient];
+            TcpListener outc = outgoingListeners[idClient];
+            
+            string executeCommand = $"Start-Process -FilePath {remotePath} -ArgumentList \" {ipAddress} {((IPEndPoint)inc.LocalEndpoint).Port} {((IPEndPoint)outc.LocalEndpoint).Port}\"";
+            //Console.WriteLine(executeCommand);
             string script = $"{executeCommand}";
-
-            // Создаем объект SecureString для пароля
 
             // Создаем объект PSCredential с именем пользователя и паролем
             var credential = new PSCredential(username, securePassword);
@@ -285,16 +305,15 @@ namespace AntColonyServer
                 AuthenticationMechanism = AuthenticationMechanism.Negotiate
             };
 
-
             // Открываем удалённое подключение и выполняем команды
             runspace.Add(RunspaceFactory.CreateRunspace(connectionInfo));
 
-            runspace[nClient].Open();
-            pipeline.Add(runspace[nClient].CreatePipeline());
+            runspace[idClient].Open();
+            pipeline.Add(runspace[idClient].CreatePipeline());
 
 
-            pipeline[nClient].Commands.AddScript(script);
-            var results = pipeline[nClient].Invoke();
+            pipeline[idClient].Commands.AddScript(script);
+            var results = pipeline[idClient].Invoke();
 
             foreach (var item in results)
             {
@@ -319,7 +338,7 @@ namespace AntColonyServer
             List<int> allValues = new List<int>();
             List<int[]> allItems = new List<int[]>();
 
-            for (int i = 0; i < numClients; i++)
+            for (int i = 0; i < this.numClients; i++)
             {
                 string response = ReceiveData(incomingClients[i]);
                 var dataParts = response.Split(';');
@@ -366,7 +385,7 @@ namespace AntColonyServer
             {
                 TcpClient incomingClient = incomingListeners[i].AcceptTcpClient();
                 incomingClients.Add(incomingClient);
-                Console.WriteLine($"Клиент {i} подключился к входящему порту {((IPEndPoint)incomingClient.Client.LocalEndPoint).Port}");
+                //Console.WriteLine($"Клиент {i} подключился к входящему порту {((IPEndPoint)incomingClient.Client.LocalEndPoint).Port}");
 
                 TcpClient outgoingClient = outgoingListeners[i].AcceptTcpClient();
                 outgoingClients.Add(outgoingClient);
@@ -397,30 +416,34 @@ namespace AntColonyServer
         /// <returns></returns>
         private void CreateAndInitializeSockets(int numSock)
         { 
-            for (int i = 0; i < numSock; i++)
+            for (int i = 0; i < numClients; i++)
             {
                 try
                 {
                     TcpListener incomingListener = new TcpListener(ipAddress, inPort);
                     incomingListener.Start();
                     incomingListeners.Add(incomingListener);
-                    Console.WriteLine($"Входящий слушатель запущен на порту {((IPEndPoint)incomingListener.LocalEndpoint).Port}");
+                    //Console.WriteLine($"Входящий слушатель запущен на порту {((IPEndPoint)incomingListener.LocalEndpoint).Port}");
 
                     TcpListener outgoingListener = new TcpListener(ipAddress, outPort);
                     outgoingListener.Start();
                     outgoingListeners.Add(outgoingListener);
-                    Console.WriteLine($"Исходящий слушатель запущен на порту {((IPEndPoint)outgoingListener.LocalEndpoint).Port}");
+                    //Console.WriteLine($"Исходящий слушатель запущен на порту {((IPEndPoint)outgoingListener.LocalEndpoint).Port}");
                     outPort = outPort + 1;
                     inPort = inPort + 1;
                 }
                 catch (SocketException ex)
                 {
-                    Console.WriteLine($"Ошибка при запуске входящего слушателя на порту {inPort}: {ex.Message}");
+                    Console.WriteLine($"Ошибка при запуске слушателя на порту {inPort}: {ex.Message}");
                     outPort = outPort + 1;
                     inPort = inPort + 1;
                     i--;
                     continue;
-                }              
+                }
+                if (serverConfig.LocalTest == true)
+                {
+                    StartClientProcess(i);
+                }
             }
         }
 
@@ -523,8 +546,6 @@ namespace AntColonyServer
 
             Console.WriteLine($"{new string('-', 32)}");
             Console.WriteLine("Алгоритм муравьиной оптимизации");
-            Console.WriteLine(Directory.GetCurrentDirectory());
-
             try
             {
                 var configuration = new ConfigurationBuilder()
@@ -532,25 +553,13 @@ namespace AntColonyServer
          .AddJsonFile("config.json", optional: false, reloadOnChange: true)
          .Build();
 
-                var config = configuration.Get<ServerConfig>();
+                var config = configuration.Get<ServerConfig>() ??  new ServerConfig();
                 ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config);
                 Console.WriteLine($"{new string('-', 32)}");
                 ShowConfig(config);
-               
-                try
-                {
-                    server.StartServer();
-                    server.CloseServer();
-                }
-                catch (Exception e)
-                {
-                    server.CloseServer();
-                    throw new Exception(e.Message);
-                }
-                finally
-                {
-                    server.CloseServer();
-                }
+
+                server.StartServer();
+                
 
             }
             catch (Exception e)
@@ -563,8 +572,9 @@ namespace AntColonyServer
  
         static void ShowConfig(ServerConfig serverConfig)
         {
-            Console.WriteLine("{0,30}","-----Конфигурация-----");
-            Console.WriteLine("{0,-30} {1}", "Имена компьютеров:", string.Join(", ", serverConfig.IpClients));
+            Console.WriteLine("{0,30}","-----Конфигурация(config.json)-----");
+            Console.WriteLine("{0,-30} {1}", "Запуск локально:", serverConfig.LocalTest);
+            Console.WriteLine("{0,-30} {1}", "Имена компьютеров:", string.Join(", ", serverConfig.NameClients));
             Console.WriteLine("{0,-30} {1}", "Максимум муравьев:", serverConfig.MaxAnts);
             Console.WriteLine("{0,-30} {1}", "Username:", serverConfig.Username);
             Console.WriteLine("{0,-30} {1}", "Password:", serverConfig.Password);
@@ -575,7 +585,7 @@ namespace AntColonyServer
             Console.WriteLine("{0,-30} {1}", "Beta:", serverConfig.Beta);
             Console.WriteLine("{0,-30} {1}", "Q:", serverConfig.Q);
             Console.WriteLine("{0,-30} {1}", "RHO:", serverConfig.RHO);
-            Console.WriteLine("{0,-30} {1}", "Количество предметов:", serverConfig.CountSubjects);
+            Console.WriteLine("{0,-30} {1}", "Количество предметов:", serverConfig.CountSubjects);          
             Console.WriteLine("{0,-30} {1}", "Путь к exe на удаленном хосте:", serverConfig.PathToEXE);
             Console.WriteLine("{0,-30} {1}", "Имя файла:", serverConfig.NameFile);
             Console.WriteLine($"{new string('-', 32)}");
