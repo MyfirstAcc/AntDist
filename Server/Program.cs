@@ -34,13 +34,15 @@ namespace AntColonyServer
         public bool LocalTest { get; set; }
         public bool UploadFile { get; set; }
 
+        public string LogFilePath { get; set; }
+
         public ServerConfig()
         {
             NameClients ??= new string[0];
             MaxAnts = 20;
             Username = "";
             Password = "";
-            InPort = 8080;
+            InPort = 7080;
             OutPort = 9090;
             maxIteration = 100;
             Alpha = 1.0;
@@ -52,10 +54,45 @@ namespace AntColonyServer
             NameFile = "Client.exe";
             LocalTest = true;
             UploadFile = false;
+            LogFilePath = "";
         }
-
     }
 
+    public class MultiTextWriter : TextWriter
+    {
+        private readonly TextWriter[] writers;
+
+        public MultiTextWriter(params TextWriter[] writers)
+        {
+            this.writers = writers;
+        }
+
+        public override Encoding Encoding => writers[0].Encoding;
+
+        public override void Write(char value)
+        {
+            foreach (var writer in writers)
+            {
+                writer.Write(value);
+            }
+        }
+
+        public override void WriteLine(string value)
+        {
+            foreach (var writer in writers)
+            {
+                writer.WriteLine(value);
+            }
+        }
+
+        public override void Flush()
+        {
+            foreach (var writer in writers)
+            {
+                writer.Flush();
+            }
+        }
+    }
 
     /// <summary>
     /// Алгоритм муравьиной оптимизации (Ant Colony Optimization)
@@ -63,15 +100,14 @@ namespace AntColonyServer
     /// </summary>
     public class ServerAnts
     {
-        private int port;
-        private int numClients;         // Количество клиентов
-        private double alpha;           // Влияние феромонов
-        private double beta;            // Влияние эвристической информации
-        private double RHO;             // Коэффициент испарения феромонов
-        private int Q;                  // Константа для обновления феромонов
-        private int countSubjects;      // Количество предметов
+        private readonly int numClients;         // Количество клиентов
+        private readonly double alpha;           // Влияние феромонов
+        private readonly double beta;            // Влияние эвристической информации
+        private readonly double RHO;             // Коэффициент испарения феромонов
+        private readonly int Q;                  // Константа для обновления феромонов
+        private readonly int countSubjects;      // Количество предметов
         private int bestValue;
-        private int maxIteration;       // Количество итераций
+        private readonly int maxIteration;       // Количество итераций
         private double[] pheromone;     // «привлекательность» каждого элемента или пути для муравьев
         private List<IPAddress> ipClients;
         // TO DO - ПЕРЕПИСАТЬ НА HASHTABLE
@@ -81,14 +117,15 @@ namespace AntColonyServer
         private List<TcpClient> outgoingClients = new List<TcpClient>();       // экземпляры обмена данными на выход клиенту
         private int inPort;
         private int outPort;
-        private IPAddress ipAddress;
+        private IPAddress ipAddress;     
 
-        PowerShell psLocal;
-        ServerConfig serverConfig;
-        List<Pipeline> pipeline;
+        private PowerShell psLocal;
+        private ServerConfig serverConfig;
+        private List<Pipeline> pipeline;
         private List<Runspace> runspace;
+        MultiTextWriter multiTextWriter;
 
-        public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig)
+        public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig, MultiTextWriter multiTextWriter)
         {
             this.ipAddress = iPAddress;
             this.serverConfig = serverConfig;
@@ -105,6 +142,7 @@ namespace AntColonyServer
             pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
             pipeline = new List<Pipeline>(this.numClients);
             runspace = new List<Runspace>(this.numClients);
+            this.multiTextWriter = multiTextWriter;
 
         }
         /// <summary>
@@ -129,33 +167,19 @@ namespace AntColonyServer
             return (values, weights, weightLimit);
         }
 
-        private void StartClientProcess(int clientId)
-        {
-            Process clientProcess = new Process();
-            clientProcess.StartInfo.FileName = serverConfig.NameFile;
-            TcpListener inc = this.incomingListeners[clientId];
-            TcpListener outc = this.outgoingListeners[clientId];
-            clientProcess.StartInfo.Arguments = $"{ipAddress} {((IPEndPoint)inc.LocalEndpoint).Port} {((IPEndPoint)outc.LocalEndpoint).Port}";
-            clientProcess.StartInfo.WorkingDirectory = Directory.GetCurrentDirectory();
-            clientProcess.Start();
-        }
 
         public void StartServer()
         {
             var stopwatch = Stopwatch.StartNew();
             var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);
-            var nAnts = CountAntsPerClients(serverConfig.MaxAnts, numClients);
+            var nAnts = NumberOfAntsPerClient(serverConfig.MaxAnts, numClients);
             CreateAndInitializeSockets(numClients);
             ChooseAndRunClients();
-            Console.WriteLine($"{new string('-', 32)}");
 
-            
+            AcceptClients();
             stopwatch.Stop();
             TimeSpan clientStartTimer = stopwatch.Elapsed;
-
             Console.WriteLine($"--- Время запуска клиентских сокетов : {clientStartTimer.TotalSeconds} с.");
-            AcceptClients();
-
 
             for (int i = 0; i < outgoingClients.Count; i++)
             {
@@ -218,10 +242,8 @@ namespace AntColonyServer
             Console.WriteLine($"--- Общая стоимость: {bestValue}");
             Console.WriteLine($"--- Время выполнения алгоритма: {methodRunTimer.TotalSeconds} с.");
             Console.WriteLine($"--- Общее время выполнения: {(clientStartTimer + methodRunTimer).TotalSeconds} с.");
-            //pipeline.Commands.AddScript($"Remove-Item -Path '{serverConfig.PathToEXE + serverConfig.NameFile}' -Force");
 
         }
-
 
         private void ChooseAndRunClients()
         {
@@ -251,7 +273,7 @@ namespace AntColonyServer
             }
         }
 
-        public void DeployRemoteApp(string remoteComputer, string remotePath, string localFilePath, int i, string username, string password)
+        private void DeployRemoteApp(string remoteComputer, string remotePath, string localFilePath, int i, string username, string password)
         {
 
             ///
@@ -293,7 +315,6 @@ namespace AntColonyServer
             TcpListener outc = outgoingListeners[idClient];
             
             string executeCommand = $"Start-Process -FilePath {remotePath} -ArgumentList \" {ipAddress} {((IPEndPoint)inc.LocalEndpoint).Port} {((IPEndPoint)outc.LocalEndpoint).Port}\"";
-            //Console.WriteLine(executeCommand);
             string script = $"{executeCommand}";
 
             // Создаем объект PSCredential с именем пользователя и паролем
@@ -320,6 +341,17 @@ namespace AntColonyServer
                 Console.WriteLine(item);
             }
 
+        }
+
+        private void StartClientProcess(int clientId)
+        {
+            Process clientProcess = new Process();
+            clientProcess.StartInfo.FileName = serverConfig.NameFile;
+            TcpListener inc = this.incomingListeners[clientId];
+            TcpListener outc = this.outgoingListeners[clientId];
+            clientProcess.StartInfo.Arguments = $"{ipAddress} {((IPEndPoint)inc.LocalEndpoint).Port} {((IPEndPoint)outc.LocalEndpoint).Port}";
+            clientProcess.StartInfo.WorkingDirectory = Directory.GetCurrentDirectory();
+            clientProcess.Start();
         }
 
         /// <summary>
@@ -369,7 +401,7 @@ namespace AntColonyServer
             return (bestValue, bestItems, allValues, allItems);
         }
 
-        public List<int[]> ParseAntSelections(string input)
+        private List<int[]> ParseAntSelections(string input)
         {
             string[] antSelections = input.Split(',').Select(s => s.Trim()).ToArray();
             List<int[]> result = antSelections.Select(antSelection => antSelection.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray()).ToList();
@@ -379,17 +411,28 @@ namespace AntColonyServer
         /// <summary>
         /// Метод для получения TCPClient, подключение клиентов
         /// </summary>
-        public void AcceptClients()
+        private void AcceptClients()
         {
-            for (int i = 0; i < incomingListeners.Count; i++)
+            if (multiTextWriter is not null)
             {
+                Console.SetOut(new StreamWriter(Console.OpenStandardOutput(),Encoding.GetEncoding(866)) { AutoFlush = true });
+            }
+            for (int i = 0; i < numClients; i++)
+            {
+
                 TcpClient incomingClient = incomingListeners[i].AcceptTcpClient();
                 incomingClients.Add(incomingClient);
-                //Console.WriteLine($"Клиент {i} подключился к входящему порту {((IPEndPoint)incomingClient.Client.LocalEndPoint).Port}");
 
+                Console.WriteLine($"Клиент {i} подключился к входящему порту {((IPEndPoint)incomingClient.Client.LocalEndPoint).Port}");
                 TcpClient outgoingClient = outgoingListeners[i].AcceptTcpClient();
                 outgoingClients.Add(outgoingClient);
                 Console.WriteLine($"Клиент {i} подключился к исходящему порту {((IPEndPoint)outgoingClient.Client.LocalEndPoint).Port}");
+            }
+            Console.WriteLine($"{new string('-', 32)}");
+
+            if (multiTextWriter is not null)
+            {
+                Console.SetOut(multiTextWriter);
             }
         }
 
@@ -415,39 +458,41 @@ namespace AntColonyServer
         /// <param name="numSock">кол-во сокетов(листенеров) клиента</param>
         /// <returns></returns>
         private void CreateAndInitializeSockets(int numSock)
-        { 
-            for (int i = 0; i < numClients; i++)
+        {
+            int successfulClients = 0; // Счетчик для успешных соединений
+
+            while (successfulClients <= numClients)
             {
                 try
                 {
                     TcpListener incomingListener = new TcpListener(ipAddress, inPort);
                     incomingListener.Start();
                     incomingListeners.Add(incomingListener);
-                    //Console.WriteLine($"Входящий слушатель запущен на порту {((IPEndPoint)incomingListener.LocalEndpoint).Port}");
 
                     TcpListener outgoingListener = new TcpListener(ipAddress, outPort);
                     outgoingListener.Start();
                     outgoingListeners.Add(outgoingListener);
+
                     //Console.WriteLine($"Исходящий слушатель запущен на порту {((IPEndPoint)outgoingListener.LocalEndpoint).Port}");
-                    outPort = outPort + 1;
-                    inPort = inPort + 1;
+
+                    // Увеличиваем порты только после успешного создания обоих сокетов
+                    inPort++;
+                    outPort++;
+                    successfulClients++; // Увеличиваем счётчик успешных соединений
                 }
                 catch (SocketException ex)
                 {
-                    Console.WriteLine($"Ошибка при запуске слушателя на порту {inPort}: {ex.Message}");
-                    outPort = outPort + 1;
-                    inPort = inPort + 1;
-                    i--;
+                    //Console.WriteLine($"Ошибка при запуске слушателя на порту {inPort}: {ex.Message}");
+                    // Пробуем с новыми значениями портов, не увеличивая счётчик
+                    inPort++;
+                    outPort++;
                     continue;
-                }
-                if (serverConfig.LocalTest == true)
-                {
-                    StartClientProcess(i);
                 }
             }
         }
 
-        private List<int> CountAntsPerClients(int maxAnts,int numSock)
+
+        private List<int> NumberOfAntsPerClient(int maxAnts,int numSock)
         {
             List<int> nAnts = new List<int>();
             int baseNumAnt = maxAnts / numSock;
@@ -462,6 +507,7 @@ namespace AntColonyServer
             Console.WriteLine("Количество муравьев на клиенте: [");
             nAnts.ForEach(x => Console.Write(" " + x));
             Console.WriteLine("\n]");
+            Console.WriteLine($"{new string('-', 32)}");
             return nAnts;
         }
 
@@ -522,7 +568,7 @@ namespace AntColonyServer
             {
                 foreach (var client in incomingClients)
                 {
-                    client.Close();
+                  client.Close();
                 }
                 incomingClients.Clear();
             }
@@ -546,28 +592,70 @@ namespace AntColonyServer
 
             Console.WriteLine($"{new string('-', 32)}");
             Console.WriteLine("Алгоритм муравьиной оптимизации");
+            Console.WriteLine($"{new string('-', 32)}");
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             try
             {
                 var configuration = new ConfigurationBuilder()
-         .SetBasePath(Directory.GetCurrentDirectory())
-         .AddJsonFile("config.json", optional: false, reloadOnChange: true)
-         .Build();
+                              .SetBasePath(Directory.GetCurrentDirectory())
+                              .AddJsonFile("config.json", optional: false, reloadOnChange: true)
+                              .Build();
 
-                var config = configuration.Get<ServerConfig>() ??  new ServerConfig();
-                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config);
-                Console.WriteLine($"{new string('-', 32)}");
+                var config = configuration.Get<ServerConfig>() ?? new ServerConfig();
+                var nameClientsValue = configuration.GetSection("nameClients").Value;
+                StreamWriter? StreamLogFile;
+                MultiTextWriter? multiTextWriter;
+                StreamLogFile = config.LogFilePath != "" ? new StreamWriter(config.LogFilePath, append: true) { AutoFlush = true } : null;
+                multiTextWriter = StreamLogFile is not null ? new MultiTextWriter(Console.Out, StreamLogFile) : null;
+                if (multiTextWriter is not null)
+                {
+                    Console.SetOut(multiTextWriter);
+                }
+
+                if (int.TryParse(nameClientsValue, out int clientCount))
+                {
+                    
+                    config.NameClients = new string[clientCount];
+                    for (int i = 0; i < clientCount; i++)
+                    {
+                        config.NameClients[i] = $"{i+1}"; // инициализируем пустыми строками
+                    }
+                }
+                else
+                {
+                    // Если это массив, получаем его напрямую
+                    config.NameClients = configuration.GetSection("nameClients").Get<string[]>();
+                }
+
+
+
+                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config, multiTextWriter);              
                 ShowConfig(config);
 
-                server.StartServer();
-                
+                try
+                {
+                    server.StartServer();
+                    Console.WriteLine("\n");
+                    Console.ReadLine();
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception(ex.Message);
+                }
+                finally
+                {
+                    server.CloseServer();
+                }
 
+                if (multiTextWriter is not null)
+                {
+                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                }
             }
             catch (Exception e)
             {
                 Console.WriteLine(e.ToString());
-            }
-
-            Console.ReadLine();
+            }         
         }
  
         static void ShowConfig(ServerConfig serverConfig)
@@ -578,8 +666,6 @@ namespace AntColonyServer
             Console.WriteLine("{0,-30} {1}", "Максимум муравьев:", serverConfig.MaxAnts);
             Console.WriteLine("{0,-30} {1}", "Username:", serverConfig.Username);
             Console.WriteLine("{0,-30} {1}", "Password:", serverConfig.Password);
-            Console.WriteLine("{0,-30} {1}", "Входящий порт:", serverConfig.InPort);
-            Console.WriteLine("{0,-30} {1}", "Выходящий порт:", serverConfig.OutPort);
             Console.WriteLine("{0,-30} {1}", "Максимум итераций:", serverConfig.maxIteration);
             Console.WriteLine("{0,-30} {1}", "Alpha:", serverConfig.Alpha);
             Console.WriteLine("{0,-30} {1}", "Beta:", serverConfig.Beta);
