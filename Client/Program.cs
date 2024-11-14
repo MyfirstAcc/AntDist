@@ -17,7 +17,7 @@ class AntClient
     private int nAnts;
     public double[] pheromone;
 
-    public void ReconnectToServer(IPAddress serverAddress, int incomingPort, int outgoingPort)
+    public void ConnectToServer(IPAddress serverAddress, int incomingPort, int outgoingPort)
     {
         incomingClient = new TcpClient();
         outgoingClient = new TcpClient();
@@ -116,7 +116,7 @@ class AntClient
             outgoingStream = null;
         }
         if (incomingClient != null)
-        {
+        { 
             incomingClient.Close();
             incomingClient = null;
         }
@@ -142,8 +142,8 @@ class AntClient
             int outPort = int.Parse(args[2]);
 
             IPAddress IPParse = IPAddress.Parse(IP);
-
-            client.ReconnectToServer(IPParse, outPort, inPort);
+            client.ConnectToServer(IPParse, outPort, inPort);
+           
             client.SendMessage("READY");
 
             var str = client.ReceivedMessage();
