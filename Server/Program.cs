@@ -92,7 +92,19 @@ namespace AntColonyServer
                 writer.Flush();
             }
         }
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                foreach (var writer in writers)
+                {
+                    writer.Dispose();
+                }
+            }
+            base.Dispose(disposing);
+        }
     }
+
 
     /// <summary>
     /// Алгоритм муравьиной оптимизации (Ant Colony Optimization)
@@ -593,6 +605,7 @@ namespace AntColonyServer
             Console.WriteLine($"{new string('-', 32)}");
             Console.WriteLine("Алгоритм муравьиной оптимизации");
             Console.WriteLine($"{new string('-', 32)}");
+            // Регистрация поддержки дополнительных кодировок
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             try
             {
