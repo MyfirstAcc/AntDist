@@ -1,0 +1,77 @@
+@startuml ElDoc
+
+autonumber
+skin rose
+scale 0.9
+title Типичная работа с ЭДО
+actor "Пользователь" as User
+participant "Граф. интерфейс" as UIComponent
+participant "Модуль проекта" as EProject
+participant "Авторизация" as Auth
+participant "Модуль файла" as File
+database "База данных" as BD 
+
+
+User -> UIComponent: Открыть проект
+activate User
+activate UIComponent
+UIComponent ->> EProject: Поиск проекта
+activate EProject 
+EProject -> Auth : Проверка сессии
+activate Auth
+Auth ->> BD : Запрос данных
+activate BD
+Auth <-- BD : Данные о пользователе 
+deactivate BD
+EProject <-- Auth : Создание сессии
+deactivate Auth
+EProject ->> BD : Информация о файлах
+activate BD
+EProject <-- BD : Данные о файлах
+deactivate BD
+UIComponent <-- EProject : Список файлов
+deactivate EProject
+User <-- UIComponent: Отображение списка
+deactivate UIComponent
+deactivate User
+
+
+User -> UIComponent : Открыть файл
+activate User
+activate UIComponent
+UIComponent ->> EProject : Индекс файла
+activate EProject
+EProject -> Auth : Проверка сессии
+activate Auth
+Auth ->> BD : Запрос данных
+activate BD
+Auth <-- BD : Данные о пользователе 
+deactivate BD
+EProject <-- Auth : Информация о сессии
+deactivate Auth
+EProject ->> BD : Поиск файла
+activate BD
+BD --> EProject : Путь до файла
+deactivate BD
+EProject -> File : Открыть файл
+activate File
+EProject <-- File : Данные о файле
+deactivate File
+EProject ->File : Преобразовать
+activate File
+EProject <-- File : Данные файла
+deactivate File
+EProject -> Auth : Поставить на контроль
+activate Auth
+Auth ->> BD : Сделать пометку 
+activate BD
+Auth <-- BD : Получение подтверждения
+deactivate BD
+EProject <-- Auth : Информация о сессии
+deactivate Auth
+UIComponent <-- EProject : Данные файла
+deactivate EProject
+User <-- UIComponent : Отображение данных
+deactivate UIComponent
+deactivate User
+@enduml
