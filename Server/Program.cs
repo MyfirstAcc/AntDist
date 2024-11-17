@@ -690,7 +690,6 @@ namespace AntColonyServer
             Console.WriteLine($"{new string('-', 32)}");
         }
 
-
         static string GetLocalIPAddress()
         {
             var host = Dns.GetHostEntry(Dns.GetHostName());

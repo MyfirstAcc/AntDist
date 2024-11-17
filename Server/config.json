@@ -1,5 +1,5 @@
 {
-  "nameClients": 5,
+  "nameClients": 4,
   "maxAnts": 20,
   "inPort": 6000,
   "outport": 7000,
@@ -10,7 +10,7 @@
   "beta": 5.0,
   "Q": 100,
   "RHO": 0.1,
-  "countSubjects": "1000",
+  "countSubjects": 1000,
   "pathToEXE": "C:\\temp",
   "nameFile": "Client.exe",
   "localtest": true,
