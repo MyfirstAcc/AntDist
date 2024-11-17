@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security;
 using System.Text;
+using System.Web.Services.Description;
 
 namespace AntColonyServer
 {
@@ -36,6 +37,8 @@ namespace AntColonyServer
 
         public string LogFilePath { get; set; }
 
+        public string ProtocolType { get; set; }
+
         public ServerConfig()
         {
             NameClients ??= new string[0];
@@ -55,6 +58,7 @@ namespace AntColonyServer
             LocalTest = true;
             UploadFile = false;
             LogFilePath = "";
+            ProtocolType = "tcp";
         }
     }
 
@@ -122,11 +126,14 @@ namespace AntColonyServer
         private readonly int maxIteration;       // Количество итераций
         private double[] pheromone;     // «привлекательность» каждого элемента или пути для муравьев
         private List<IPAddress> ipClients;
-        // TO DO - ПЕРЕПИСАТЬ НА HASHTABLE
-        private List<TcpListener> incomingListeners = new List<TcpListener>(); // экземпляры прослушки на вход к клиенту
-        private List<TcpListener> outgoingListeners = new List<TcpListener>(); // экземпляры прослушки на выход от клиента
-        private List<TcpClient> incomingClients = new List<TcpClient>();       // экземпляры обмена данными на вход клиента
-        private List<TcpClient> outgoingClients = new List<TcpClient>();       // экземпляры обмена данными на выход клиенту
+
+        private readonly ProtocolType protocolType; // Тип протокола: TCP или UDP
+        private List<Socket> incomingSockets = new List<Socket>();       // экземпляры обмена данными на вход клиента
+        private List<Socket> outgoingSockets = new List<Socket>();       // экземпляры обмена данными на выход клиенту
+        private List<Socket> incomingClients = new List<Socket>();
+        private List<Socket> outgoingClients = new List<Socket>();
+
+
         private int inPort;
         private int outPort;
         private IPAddress ipAddress;     
@@ -134,14 +141,14 @@ namespace AntColonyServer
         private PowerShell psLocal;
         private ServerConfig serverConfig;
         private List<Pipeline> pipeline;
-        private List<Runspace> runspace;
+        private List<Runspace> runSpace;
         MultiTextWriter multiTextWriter;
 
         public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig, MultiTextWriter multiTextWriter)
         {
             this.ipAddress = iPAddress;
             this.serverConfig = serverConfig;
-            this.numClients = serverConfig.NameClients.Length == 0 ? 4: serverConfig.NameClients.Length;
+            this.numClients = 1;//serverConfig.NameClients.Length == 0 ? 4: serverConfig.NameClients.Length;
             this.alpha = serverConfig.Alpha;
             this.beta = serverConfig.Beta;
             this.RHO = serverConfig.RHO;
@@ -151,10 +158,11 @@ namespace AntColonyServer
             this.maxIteration = serverConfig.maxIteration;
             this.inPort = serverConfig.InPort;
             this.outPort = serverConfig.OutPort;
-            pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
-            pipeline = new List<Pipeline>(this.numClients);
-            runspace = new List<Runspace>(this.numClients);
+            this.pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
+            this.pipeline = new List<Pipeline>(this.numClients);
+            this.runSpace = new List<Runspace>(this.numClients);
             this.multiTextWriter = multiTextWriter;
+            this.protocolType = serverConfig.ProtocolType.ToLower() == "tcp" ? ProtocolType.Tcp : ProtocolType.Udp;
 
         }
         /// <summary>
@@ -182,36 +190,42 @@ namespace AntColonyServer
 
         public void StartServer()
         {
-            var stopwatch = Stopwatch.StartNew();
+
             var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);
             var nAnts = NumberOfAntsPerClient(serverConfig.MaxAnts, numClients);
-            CreateAndInitializeSockets(numClients);
-            ChooseAndRunClients();
+
+            if (protocolType == ProtocolType.Tcp)
+            {
+                Console.WriteLine("Запуск сервера в режиме TCP...");
+                InitializeTcpSockets();
+            }
+            else if (protocolType == ProtocolType.Udp)
+            {
+                Console.WriteLine("Запуск сервера в режиме UDP...");
+                InitializeUdpSockets();
+            }
+            else
+            {
+                throw new NotSupportedException("Указанный протокол не поддерживается.");
+            }
+
+
+            var stopwatch = Stopwatch.StartNew();
+
+//            ChooseAndRunClients();
 
             AcceptClients();
             stopwatch.Stop();
             TimeSpan clientStartTimer = stopwatch.Elapsed;
             Console.WriteLine($"--- Время запуска клиентских сокетов : {clientStartTimer.TotalSeconds} с.");
 
-            for (int i = 0; i < outgoingClients.Count; i++)
+            for (int i = 0; i < outgoingSockets.Count; i++)
             {
-                var inSocket = incomingClients[i];
-                var incomingStream = inSocket.GetStream();
-
-                byte[] buffer = new byte[1024];
-                int bytesRead = incomingStream.Read(buffer, 0, buffer.Length);
-
-                if (bytesRead == 0) break;
-
-                string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                var message = ReceiveData(i, 1024);
                 if (message == "READY")
                 {
-                    var outSocket = outgoingClients[i];
-                    var outgoingStream = outSocket.GetStream();
-
                     string initData = $"{string.Join(",", weights)};{string.Join(",", values)};{weightLimit};{alpha};{beta};{nAnts[i]}";
-                    byte[] responseBytes = Encoding.UTF8.GetBytes(initData);
-                    outgoingStream.Write(responseBytes, 0, responseBytes.Length);
+                    SendData(i, initData);
                 }
             }
 
@@ -219,6 +233,15 @@ namespace AntColonyServer
             List<int> bestItems = new List<int>();
             stopwatch.Reset();
             stopwatch.Start();
+            for (int i = 0; i < outgoingSockets.Count; i++)
+            {
+                var message = ReceiveData(i, 1024);
+                if (message != "READY")
+                {
+                    break;
+                }
+            }
+
             for (int iter = 1; iter < maxIteration; iter++)
             {
 
@@ -244,9 +267,9 @@ namespace AntColonyServer
                 }
             }
 
-            foreach (var outSocket in outgoingClients)
+            for (int j = 0; j <numClients; j++ )
             {
-                SendData(outSocket, "end");
+                SendData(j, "end");
             }
             stopwatch.Stop();
             TimeSpan methodRunTimer = stopwatch.Elapsed;
@@ -255,6 +278,70 @@ namespace AntColonyServer
             Console.WriteLine($"--- Время выполнения алгоритма: {methodRunTimer.TotalSeconds} с.");
             Console.WriteLine($"--- Общее время выполнения: {(clientStartTimer + methodRunTimer).TotalSeconds} с.");
 
+        }
+
+        private void InitializeTcpSockets()
+        {
+            int successfulClients = 0; // Счетчик для успешных соединений
+            while (successfulClients < numClients)
+            {
+                try
+                {
+                    Socket incomingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    incomingSocket.Bind(new IPEndPoint(ipAddress, inPort));
+                    incomingSocket.Listen(numClients);
+                    incomingSockets.Add(incomingSocket);
+                    Console.WriteLine(ipAddress);
+
+                    Socket outgoingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    outgoingSocket.Bind(new IPEndPoint(ipAddress, outPort));
+                    outgoingSocket.Listen(numClients);
+                    outgoingSockets.Add(outgoingSocket);
+
+                    outPort++;
+                    inPort++;
+                    successfulClients++;
+                }
+                catch (SocketException ex)
+                {
+                    //Console.WriteLine($"Ошибка при запуске слушателя на порту {inPort}: {ex.Message}");
+                    // Пробуем с новыми значениями портов, не увеличивая счётчик
+                    inPort++;
+                    outPort++;
+                    continue;
+                }
+            }
+
+        }
+        
+        private void InitializeUdpSockets()
+        {
+            int successfulClients = 0; // Счетчик для успешных соединений
+            while (successfulClients <= numClients)
+            {
+                try
+                {
+                    Socket incomingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                    incomingSocket.Bind(new IPEndPoint(ipAddress, inPort));
+                    incomingSockets.Add(incomingSocket);
+
+                    Socket outgoingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                    outgoingSocket.Bind(new IPEndPoint(ipAddress, outPort));
+                    outgoingSockets.Add(outgoingSocket);
+
+                    outPort++;
+                    inPort++;
+                    successfulClients++;
+                }
+                catch (SocketException ex)
+                {
+                    //Console.WriteLine($"Ошибка при запуске слушателя на порту {inPort}: {ex.Message}");
+                    // Пробуем с новыми значениями портов, не увеличивая счётчик
+                    inPort++;
+                    outPort++;
+                    continue;
+                }
+            }
         }
 
         private void ChooseAndRunClients()
@@ -323,10 +410,14 @@ namespace AntColonyServer
                 securePassword.AppendChar(c);
             securePassword.MakeReadOnly();
 
-            TcpListener inc = incomingListeners[idClient];
-            TcpListener outc = outgoingListeners[idClient];
-            
-            string executeCommand = $"Start-Process -FilePath {remotePath} -ArgumentList \" {ipAddress} {((IPEndPoint)inc.LocalEndpoint).Port} {((IPEndPoint)outc.LocalEndpoint).Port}\"";
+            Socket inc = incomingSockets[idClient];
+            Socket outc = outgoingSockets[idClient];
+
+            int inPort = ((IPEndPoint)inc.LocalEndPoint).Port;
+            int outPort = ((IPEndPoint)outc.LocalEndPoint).Port;
+
+            // Формируем команду
+            string executeCommand = $"Start-Process -FilePath {remotePath} -ArgumentList \"{ipAddress} {inPort} {outPort}\"";
             string script = $"{executeCommand}";
 
             // Создаем объект PSCredential с именем пользователя и паролем
@@ -339,10 +430,10 @@ namespace AntColonyServer
             };
 
             // Открываем удалённое подключение и выполняем команды
-            runspace.Add(RunspaceFactory.CreateRunspace(connectionInfo));
+            runSpace.Add(RunspaceFactory.CreateRunspace(connectionInfo));
 
-            runspace[idClient].Open();
-            pipeline.Add(runspace[idClient].CreatePipeline());
+            runSpace[idClient].Open();
+            pipeline.Add(runSpace[idClient].CreatePipeline());
 
 
             pipeline[idClient].Commands.AddScript(script);
@@ -359,9 +450,10 @@ namespace AntColonyServer
         {
             Process clientProcess = new Process();
             clientProcess.StartInfo.FileName = serverConfig.NameFile;
-            TcpListener inc = this.incomingListeners[clientId];
-            TcpListener outc = this.outgoingListeners[clientId];
-            clientProcess.StartInfo.Arguments = $"{ipAddress} {((IPEndPoint)inc.LocalEndpoint).Port} {((IPEndPoint)outc.LocalEndpoint).Port}";
+            Socket inc = this.incomingSockets[clientId];
+            Socket outc = this.outgoingSockets[clientId];
+           
+            clientProcess.StartInfo.Arguments = $"{ipAddress} {((IPEndPoint)inc.LocalEndPoint).Port} {((IPEndPoint)inc.LocalEndPoint).Port}";
             clientProcess.StartInfo.WorkingDirectory = Directory.GetCurrentDirectory();
             clientProcess.Start();
         }
@@ -372,9 +464,11 @@ namespace AntColonyServer
         /// <returns></returns>
         private (int bestValue, List<int> bestItems, List<int> allValues, List<int[]> allItems) OneStepAntColony()
         {
-            foreach (var outSocket in outgoingClients)
+
+            for (int i = 0; i < numClients; i++)
             {
-                SendData(outSocket, string.Join(",", pheromone));
+
+                SendData(i, string.Join(",", pheromone));
             }
 
             List<int> bestValues = new List<int>();
@@ -384,7 +478,7 @@ namespace AntColonyServer
 
             for (int i = 0; i < this.numClients; i++)
             {
-                string response = ReceiveData(incomingClients[i]);
+                string response = ReceiveData(i, 65000);
                 var dataParts = response.Split(';');
 
                 int parseInt = 0;
@@ -431,14 +525,21 @@ namespace AntColonyServer
             }
             for (int i = 0; i < numClients; i++)
             {
-
-                TcpClient incomingClient = incomingListeners[i].AcceptTcpClient();
-                incomingClients.Add(incomingClient);
-
-                Console.WriteLine($"Клиент {i} подключился к входящему порту {((IPEndPoint)incomingClient.Client.LocalEndPoint).Port}");
-                TcpClient outgoingClient = outgoingListeners[i].AcceptTcpClient();
-                outgoingClients.Add(outgoingClient);
-                Console.WriteLine($"Клиент {i} подключился к исходящему порту {((IPEndPoint)outgoingClient.Client.LocalEndPoint).Port}");
+                if (protocolType == ProtocolType.Tcp)
+                {
+                    Socket clientSocketIn = incomingSockets[i].Accept(); // Только для TCP
+                    incomingClients.Add(clientSocketIn);
+                    Console.WriteLine($"Клиент {i} подключился к  порту {((IPEndPoint)clientSocketIn.LocalEndPoint)}");
+                    Socket clientSocketOut = outgoingSockets[i].Accept();
+                    outgoingClients.Add(clientSocketOut);
+                    Console.WriteLine($"Клиент {i} подключился к порту {((IPEndPoint)clientSocketOut.LocalEndPoint)}");
+                    Console.WriteLine($"{ipAddress} {((IPEndPoint)clientSocketIn.LocalEndPoint).Port} {((IPEndPoint)clientSocketOut.LocalEndPoint).Port}");
+                }
+                else
+                {
+                    Console.WriteLine($"UDP сокет готов на порту {inPort + i}...");
+                    // UDP не требует Accept, данные принимаются сразу
+                }
             }
             Console.WriteLine($"{new string('-', 32)}");
 
@@ -448,61 +549,42 @@ namespace AntColonyServer
             }
         }
 
-        private void SendData(TcpClient outSocket, string message)
-        {
-            var outgoingStream = outSocket.GetStream();
-            byte[] responseBytes = Encoding.UTF8.GetBytes(message);
-            outgoingStream.Write(responseBytes, 0, responseBytes.Length);
-        }
+        private void SendData(int clientIndex, string message)
+        { 
+            byte[] data = Encoding.UTF8.GetBytes(message);
 
-        private string ReceiveData(TcpClient inSocket)
-        {
-            var incomingStream = inSocket.GetStream();
-            byte[] buffer = new byte[65000];
-            int bytesRead = incomingStream.Read(buffer, 0, buffer.Length);
-            if (bytesRead == 0) return "";
-            return Encoding.UTF8.GetString(buffer, 0, bytesRead);
-        }
-
-        /// <summary>
-        /// Создание клиент-серверной архитектуры распределенной системы, запуск клиентов
-        /// </summary>
-        /// <param name="numSock">кол-во сокетов(листенеров) клиента</param>
-        /// <returns></returns>
-        private void CreateAndInitializeSockets(int numSock)
-        {
-            int successfulClients = 0; // Счетчик для успешных соединений
-
-            while (successfulClients <= numClients)
+            if (protocolType == ProtocolType.Tcp)
             {
-                try
-                {
-                    TcpListener incomingListener = new TcpListener(ipAddress, inPort);
-                    incomingListener.Start();
-                    incomingListeners.Add(incomingListener);
-
-                    TcpListener outgoingListener = new TcpListener(ipAddress, outPort);
-                    outgoingListener.Start();
-                    outgoingListeners.Add(outgoingListener);
-
-                    //Console.WriteLine($"Исходящий слушатель запущен на порту {((IPEndPoint)outgoingListener.LocalEndpoint).Port}");
-
-                    // Увеличиваем порты только после успешного создания обоих сокетов
-                    inPort++;
-                    outPort++;
-                    successfulClients++; // Увеличиваем счётчик успешных соединений
-                }
-                catch (SocketException ex)
-                {
-                    //Console.WriteLine($"Ошибка при запуске слушателя на порту {inPort}: {ex.Message}");
-                    // Пробуем с новыми значениями портов, не увеличивая счётчик
-                    inPort++;
-                    outPort++;
-                    continue;
-                }
+                var clientSocket = outgoingClients[clientIndex];
+                clientSocket.Send(data);
+            }
+            else if (protocolType == ProtocolType.Udp)
+            {
+                var clientSocket = outgoingClients[clientIndex];
+                var endpoint = new IPEndPoint(ipAddress, outPort + clientIndex);
+                clientSocket.SendTo(data, endpoint);
             }
         }
 
+        public string ReceiveData(int clientIndex, int countBuffer)
+        {
+            byte[] buffer = new byte[countBuffer];
+            if (protocolType == ProtocolType.Tcp)
+            {
+                var clientSocket = incomingClients[clientIndex];
+                int bytesRead = clientSocket.Receive(buffer);
+                if (bytesRead == -1) return string.Empty;
+                return Encoding.UTF8.GetString(buffer, 0, bytesRead);
+            }
+            else if (protocolType == ProtocolType.Udp)
+            {
+                var clientSocket = incomingClients[clientIndex];
+                EndPoint remoteEndpoint = new IPEndPoint(IPAddress.Any, 0);
+                int bytesRead = clientSocket.ReceiveFrom(buffer, ref remoteEndpoint);
+                return Encoding.UTF8.GetString(buffer, 0, bytesRead);
+            }
+            return string.Empty;
+        }
 
         private List<int> NumberOfAntsPerClient(int maxAnts,int numSock)
         {
@@ -540,9 +622,9 @@ namespace AntColonyServer
             }
 
             // Закрытие всех runspace
-            if (runspace != null)
+            if (runSpace != null)
             {
-                foreach (var space in runspace)
+                foreach (var space in runSpace)
                 {
                     if (space != null)
                     {
@@ -550,48 +632,37 @@ namespace AntColonyServer
                         space.Dispose();
                     }
                 }
-                runspace.Clear();
-                runspace = null;
+                runSpace.Clear();
+                runSpace = null;
             }
 
 
-            // Закрываем все входящие слушатели
-            if (incomingListeners != null)
+            foreach (var socket in incomingSockets.Concat(outgoingSockets))
             {
-                foreach (var listener in incomingListeners)
-                {
-                    listener.Stop();
-                }
-                incomingListeners.Clear();
+                if (socket.Connected)
+                    socket.Shutdown(SocketShutdown.Both);
+                socket.Close();
             }
-
-
-            if (outgoingListeners != null)
-            {
-                foreach (var listener in outgoingListeners)
-                {
-                    listener.Stop();
-                }
-                outgoingListeners.Clear();
-            }
+            incomingSockets.Clear();
+            outgoingSockets.Clear();
 
             // Закрываем все клиенсткие сокеты
-            if (incomingClients != null)
+            if (incomingSockets != null)
             {
-                foreach (var client in incomingClients)
+                foreach (var client in incomingSockets)
                 {
                   client.Close();
                 }
-                incomingClients.Clear();
+                incomingSockets.Clear();
             }
 
-            if (outgoingClients != null)
+            if (outgoingSockets != null)
             {
-                foreach (var client in outgoingClients)
+                foreach (var client in outgoingSockets)
                 {
                     client.Close();
                 }
-                outgoingClients.Clear();
+                outgoingSockets.Clear();
             }
         }
 

@@ -1,13 +1,14 @@
-﻿using System.Net;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
 class AntClient
 {
-    private TcpClient incomingClient;
-    private TcpClient outgoingClient;
-    private NetworkStream incomingStream;
-    private NetworkStream outgoingStream;
+    private Socket incomingSocket;
+    private Socket outgoingSocket;
     private string initData;
     private int[] weights;
     private int[] values;
@@ -19,25 +20,29 @@ class AntClient
 
     public void ConnectToServer(IPAddress serverAddress, int incomingPort, int outgoingPort)
     {
-        incomingClient = new TcpClient();
-        outgoingClient = new TcpClient();
+        incomingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        outgoingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
         // Подключение к входящему и исходящему порту на сервере
-        incomingClient.Connect(serverAddress, incomingPort);
-        outgoingClient.Connect(serverAddress, outgoingPort);
+        incomingSocket.Connect(serverAddress, incomingPort);
+        outgoingSocket.Connect(serverAddress, outgoingPort);
 
-        incomingStream = incomingClient.GetStream();
-        outgoingStream = outgoingClient.GetStream();
-
-        //Console.WriteLine($"Подключен к серверу на обоих портах:({((IPEndPoint)incomingClient.Client.LocalEndPoint).Port})" +
-        //$"--->({incomingPort}) ({((IPEndPoint)outgoingClient.Client.LocalEndPoint).Port})--->({outgoingPort})");
+        Console.WriteLine($"Подключен к серверу: {incomingPort} (вход) и {outgoingPort} (выход)");
     }
 
     public void SendMessage(string message)
     {
-        // Отправка сообщения на входящий порт сервера
+        // Отправка сообщения через указанный сокет
         byte[] messageBytes = Encoding.UTF8.GetBytes(message);
-        outgoingStream.Write(messageBytes, 0, messageBytes.Length);
+        outgoingSocket.Send(messageBytes);
+    }
+
+    public string ReceiveMessage(int countBuffer)
+    {
+        // Чтение данных из указанного сокета
+        byte[] buffer = new byte[65000];
+        int bytesRead = incomingSocket.Receive(buffer);     
+        return Encoding.UTF8.GetString(buffer, 0, bytesRead);
     }
 
     public void SplitInitData(string initData)
@@ -49,14 +54,6 @@ class AntClient
         alpha = double.Parse(dataParts[3]);
         beta = double.Parse(dataParts[4]);
         nAnts = int.Parse(dataParts[5]);
-    }
-
-    public string ReceivedMessage()
-    {
-        // Чтение ответа из потока исходящих сообщений
-        byte[] buffer = new byte[65000];
-        int bytesRead = incomingStream.Read(buffer, 0, buffer.Length);
-        return Encoding.UTF8.GetString(buffer, 0, bytesRead);
     }
 
     private (List<int> chosenItems, int currentValue) AntSolution()
@@ -105,26 +102,15 @@ class AntClient
 
     public void Close()
     {
-        if (incomingStream != null)
+        if (incomingSocket != null)
         {
-            incomingStream.Close();
-            incomingStream = null;
+            incomingSocket.Close();
+            incomingSocket = null;
         }
-        if (outgoingStream != null)
+        if (outgoingSocket != null)
         {
-            outgoingStream.Close();
-            outgoingStream = null;
-        }
-        if (incomingClient != null)
-        { 
-            incomingClient.Close();
-            incomingClient = null;
-        }
-        if (outgoingClient != null)
-        {
-            outgoingClient.Close();
-            outgoingClient = null;
-
+            outgoingSocket.Close();
+            outgoingSocket = null;
         }
     }
 
@@ -143,15 +129,17 @@ class AntClient
 
             IPAddress IPParse = IPAddress.Parse(IP);
             client.ConnectToServer(IPParse, outPort, inPort);
-           
+
             client.SendMessage("READY");
 
-            var str = client.ReceivedMessage();
+            var str = client.ReceiveMessage(2048);
             client.SplitInitData(str);
+
+            client.SendMessage("READY");
 
             while (true)
             {
-                string inData = client.ReceivedMessage();
+                string inData = client.ReceiveMessage(65000);
                 if (inData == "end")
                 {
                     break;
@@ -180,7 +168,6 @@ class AntClient
                     string allItemsStr = string.Join(",", Array.ConvertAll(allItems, items => string.Join(" ", items)));
                     string toSend = $"{bestValue};{string.Join(" ", bestItems)};{string.Join(" ", allValues)};{allItemsStr}";
                     client.SendMessage(toSend);
-
                 }
             }
             client.Close();
@@ -188,11 +175,10 @@ class AntClient
         catch (Exception e)
         {
             Console.WriteLine(e.Message);
-            Thread.Sleep(1000);
         }
         finally
         {
-            //client.Close();
+            client.Close();
         }
     }
 }

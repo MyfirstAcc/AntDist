@@ -14,5 +14,6 @@
   "pathToEXE": "C:\\temp",
   "nameFile": "Client.exe",
   "localtest": true,
-  "logFilePath": "log.txt"
+  "logFilePath": "log.txt",
+  "protocolType": "tcp"
 }
