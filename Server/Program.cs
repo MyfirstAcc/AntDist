@@ -627,9 +627,9 @@ namespace AntColonyServer
         static void Main(string[] args)
         {
 
-            Console.WriteLine($"{new string('-', 32)}");
-            Console.WriteLine("Алгоритм муравьиной оптимизации");
-            Console.WriteLine($"{new string('-', 32)}");
+            Console.WriteLine($"{new string('-', 42)}");
+            Console.WriteLine("Алгоритм муравьиной оптимизации (WebSocket)");
+            Console.WriteLine($"{new string('-', 42)}");
             // Регистрация поддержки дополнительных кодировок
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             try
