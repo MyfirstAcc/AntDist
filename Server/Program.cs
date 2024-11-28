@@ -138,7 +138,7 @@ namespace AntColonyServer
         {
             this.ipAddress = iPAddress;
             this.serverConfig = serverConfig;
-            this.numClients = serverConfig.NameClients.Length == 0 ? 4: serverConfig.NameClients.Length;
+            this.numClients = serverConfig.NameClients.Length == 0 ? 4 : serverConfig.NameClients.Length;
             this.alpha = serverConfig.Alpha;
             this.beta = serverConfig.Beta;
             this.RHO = serverConfig.RHO;
@@ -162,21 +162,43 @@ namespace AntColonyServer
         /// <returns></returns>
         private (int[] values, int[] weights, int weightLimit) GenerateModelParameters(int countSubjects)
         {
-            Random random = new Random(42); // Фиксируем начальное состояние
+            // Устанавливаем фиксированный seed для первого генератора
+            Random random = new Random(42);
 
+            // Генерация массивов значений и весов
             int[] values = new int[countSubjects];
             int[] weights = new int[countSubjects];
             for (int i = 0; i < countSubjects; i++)
             {
-                values[i] = 100 + random.Next(400); // Значения от 100 до 500
-                weights[i] = 10 + random.Next(90);  // Вес ant от 10 до 100
+                values[i] = 100 + random.Next(1, 401); // Значения от 100 до 500
+                weights[i] = 10 + random.Next(1, 91);  // Вес от 10 до 100
             }
 
-            int weightLimit = 500; // Ограничение для веса
+            // Создаем новый seed на основе текущего времени
+            long milliseconds = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+            long scaledTime = milliseconds * 100;
+            int seed = SumOfDigits(scaledTime);
+
+            // Устанавливаем новый seed для случайных чисел
+            random = new Random(seed);
+
+            // Устанавливаем ограничение для веса
+            int weightLimit = 500;
 
             return (values, weights, weightLimit);
         }
 
+        // Метод для суммирования цифр числа
+        private int SumOfDigits(long number)
+        {
+            int sum = 0;
+            while (number != 0)
+            {
+                sum += (int)(number % 10);
+                number /= 10;
+            }
+            return sum;
+        }
 
         public async void StartServer()
         {
@@ -185,7 +207,6 @@ namespace AntColonyServer
             var nAnts = NumberOfAntsPerClient(serverConfig.MaxAnts, numClients);
 
             InitializeWebSockets();
-
 
             var stopwatch = Stopwatch.StartNew();
 
@@ -248,6 +269,7 @@ namespace AntColonyServer
             {
                 await SendData(j, "end");
             }
+
             stopwatch.Stop();
             TimeSpan methodRunTimer = stopwatch.Elapsed;
             Console.WriteLine($"--- Состав предметов: {string.Join(",", bestItems)}");
@@ -275,7 +297,6 @@ namespace AntColonyServer
                 {
                     // Пробуем с новыми значениями портов, не увеличивая счётчик
                     inPort++;
-
                     continue;
                 }
             }
@@ -393,7 +414,7 @@ namespace AntColonyServer
             {
                 Uri uri = new Uri(lestiner);
                 port = uri.Port;
-                
+
             }
             clientProcess.StartInfo.Arguments = $"{ipAddress} {port}";
             clientProcess.StartInfo.WorkingDirectory = Directory.GetCurrentDirectory();
@@ -582,16 +603,21 @@ namespace AntColonyServer
                     listener.Stop();
                     listener.Close();
                 }
+                listeners.Clear();
+                listeners = null;
             }
 
-            if(webSockets != null)
+            if (webSockets != null)
             {
-                foreach(var socket in webSockets)
+                foreach (var socket in webSockets)
                 {
-                    await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Закрытие соединения", CancellationToken.None);
+                    if (socket.State == WebSocketState.Open)
+                    {
+                        await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None);
+                        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None);
+                    }
                 }
             }
-
         }
 
     }
@@ -638,7 +664,6 @@ namespace AntColonyServer
                     // Если это массив, получаем его напрямую
                     config.NameClients = configuration.GetSection("nameClients").Get<string[]>();
                 }
-
 
 
                 ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config, multiTextWriter);
