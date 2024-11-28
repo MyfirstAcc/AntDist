@@ -11,10 +11,6 @@ using System.Web.Services.Description;
 
 namespace AntColonyServer
 {
-
-
-    // Более-менее рабочая версия 
-    //код - рука лицо... xD
     public class ServerConfig
     {
         public string[] NameClients { get; set; }
@@ -172,19 +168,42 @@ namespace AntColonyServer
         /// <returns></returns>
         private (int[] values, int[] weights, int weightLimit) GenerateModelParameters(int countSubjects)
         {
-            Random random = new Random(42); // Фиксируем начальное состояние
+            // Устанавливаем фиксированный seed для первого генератора
+            Random random = new Random(42);
 
+            // Генерация массивов значений и весов
             int[] values = new int[countSubjects];
             int[] weights = new int[countSubjects];
             for (int i = 0; i < countSubjects; i++)
             {
-                values[i] = 100 + random.Next(400); // Значения от 100 до 500
-                weights[i] = 10 + random.Next(90);  // Вес ant от 10 до 100
+                values[i] = 100 + random.Next(1, 401); // Значения от 100 до 500
+                weights[i] = 10 + random.Next(1, 91);  // Вес от 10 до 100
             }
 
-            int weightLimit = 500; // Ограничение для веса
+            // Создаем новый seed на основе текущего времени
+            long milliseconds = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+            long scaledTime = milliseconds * 100;
+            int seed = SumOfDigits(scaledTime);
+
+            // Устанавливаем новый seed для случайных чисел
+            random = new Random(seed);
+
+            // Устанавливаем ограничение для веса
+            int weightLimit = 500;
 
             return (values, weights, weightLimit);
+        }
+
+        // Метод для суммирования цифр числа
+        private int SumOfDigits(long number)
+        {
+            int sum = 0;
+            while (number != 0)
+            {
+                sum += (int)(number % 10);
+                number /= 10;
+            }
+            return sum;
         }
 
 
