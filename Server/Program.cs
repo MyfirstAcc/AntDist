@@ -1,20 +1,19 @@
 ﻿using Humanizer;
 using Microsoft.Extensions.Configuration;
+using System;
 using System.Diagnostics;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Security;
+using System.Security.Policy;
 using System.Text;
 using System.Web.Services.Description;
 
 namespace AntColonyServer
 {
-
-
-    // Более-менее рабочая версия 
-    //код - рука лицо... xD
     public class ServerConfig
     {
         public string[] NameClients { get; set; }
@@ -109,10 +108,10 @@ namespace AntColonyServer
         }
     }
 
-
     /// <summary>
     /// Алгоритм муравьиной оптимизации (Ant Colony Optimization)
     /// Разбиение задачи для нескольких клиентов 
+    /// Получение двунаправленного соединения, такой же эффект у TCPClient
     /// </summary>
     public class ServerAnts
     {
@@ -127,18 +126,11 @@ namespace AntColonyServer
         private double[] pheromone;     // «привлекательность» каждого элемента или пути для муравьев
         private List<IPAddress> ipClients;
 
-        private readonly ProtocolType protocolType; // Тип протокола: TCP или UDP
-        private List<Socket> incomingSockets = new List<Socket>();       // экземпляры обмена данными на вход клиента
-        private List<Socket> outgoingSockets = new List<Socket>();       // экземпляры обмена данными на выход клиенту
-        private List<Socket> incomingClients = new List<Socket>();
-        private List<Socket> outgoingClients = new List<Socket>();
-
+        private List<HttpListener> listeners; // протокол выше, чем Socket
+        private List<WebSocket> webSockets; // протокол выше, чем Socket
 
         private int inPort;
-        private int outPort;
-        private IPAddress ipAddress;     
-
-        private PowerShell psLocal;
+        private IPAddress ipAddress;
         private ServerConfig serverConfig;
         private List<Pipeline> pipeline;
         private List<Runspace> runSpace;
@@ -148,7 +140,7 @@ namespace AntColonyServer
         {
             this.ipAddress = iPAddress;
             this.serverConfig = serverConfig;
-            this.numClients = 1;//serverConfig.NameClients.Length == 0 ? 4: serverConfig.NameClients.Length;
+            this.numClients = serverConfig.NameClients.Length == 0 ? 4: serverConfig.NameClients.Length;
             this.alpha = serverConfig.Alpha;
             this.beta = serverConfig.Beta;
             this.RHO = serverConfig.RHO;
@@ -157,12 +149,12 @@ namespace AntColonyServer
             this.bestValue = 0;
             this.maxIteration = serverConfig.maxIteration;
             this.inPort = serverConfig.InPort;
-            this.outPort = serverConfig.OutPort;
             this.pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
             this.pipeline = new List<Pipeline>(this.numClients);
             this.runSpace = new List<Runspace>(this.numClients);
             this.multiTextWriter = multiTextWriter;
-            this.protocolType = serverConfig.ProtocolType.ToLower() == "tcp" ? ProtocolType.Tcp : ProtocolType.Udp;
+            listeners = new List<HttpListener>();
+            webSockets = new List<WebSocket>();
 
         }
         /// <summary>
@@ -188,44 +180,31 @@ namespace AntColonyServer
         }
 
 
-        public void StartServer()
+        public async void StartServer()
         {
 
             var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);
             var nAnts = NumberOfAntsPerClient(serverConfig.MaxAnts, numClients);
 
-            if (protocolType == ProtocolType.Tcp)
-            {
-                Console.WriteLine("Запуск сервера в режиме TCP...");
-                InitializeTcpSockets();
-            }
-            else if (protocolType == ProtocolType.Udp)
-            {
-                Console.WriteLine("Запуск сервера в режиме UDP...");
-                InitializeUdpSockets();
-            }
-            else
-            {
-                throw new NotSupportedException("Указанный протокол не поддерживается.");
-            }
+            InitializeWebSockets();
 
 
             var stopwatch = Stopwatch.StartNew();
 
-//            ChooseAndRunClients();
+            ChooseAndRunClients();
 
             AcceptClients();
             stopwatch.Stop();
             TimeSpan clientStartTimer = stopwatch.Elapsed;
             Console.WriteLine($"--- Время запуска клиентских сокетов : {clientStartTimer.TotalSeconds} с.");
 
-            for (int i = 0; i < outgoingSockets.Count; i++)
+            for (int i = 0; i < webSockets.Count; i++)
             {
-                var message = ReceiveData(i, 1024);
+                string message = await ReceiveData(i, 1024);
                 if (message == "READY")
                 {
                     string initData = $"{string.Join(",", weights)};{string.Join(",", values)};{weightLimit};{alpha};{beta};{nAnts[i]}";
-                    SendData(i, initData);
+                    await SendData(i, initData);
                 }
             }
 
@@ -233,9 +212,9 @@ namespace AntColonyServer
             List<int> bestItems = new List<int>();
             stopwatch.Reset();
             stopwatch.Start();
-            for (int i = 0; i < outgoingSockets.Count; i++)
+            for (int i = 0; i < webSockets.Count; i++)
             {
-                var message = ReceiveData(i, 1024);
+                var message = await ReceiveData(i, 1024);
                 if (message != "READY")
                 {
                     break;
@@ -245,7 +224,7 @@ namespace AntColonyServer
             for (int iter = 1; iter < maxIteration; iter++)
             {
 
-                var (tmpBestValue, tmpBestItems, allValues, allItems) = OneStepAntColony();
+                var (tmpBestValue, tmpBestItems, allValues, allItems) = await OneStepAntColony();
 
                 if (tmpBestValue > bestValue)
                 {
@@ -267,9 +246,9 @@ namespace AntColonyServer
                 }
             }
 
-            for (int j = 0; j <numClients; j++ )
+            for (int j = 0; j < numClients; j++)
             {
-                SendData(j, "end");
+                await SendData(j, "end");
             }
             stopwatch.Stop();
             TimeSpan methodRunTimer = stopwatch.Elapsed;
@@ -280,70 +259,30 @@ namespace AntColonyServer
 
         }
 
-        private void InitializeTcpSockets()
+        private void InitializeWebSockets()
         {
             int successfulClients = 0; // Счетчик для успешных соединений
             while (successfulClients < numClients)
             {
                 try
                 {
-                    Socket incomingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                    incomingSocket.Bind(new IPEndPoint(ipAddress, inPort));
-                    incomingSocket.Listen(numClients);
-                    incomingSockets.Add(incomingSocket);
-                    Console.WriteLine(ipAddress);
-
-                    Socket outgoingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                    outgoingSocket.Bind(new IPEndPoint(ipAddress, outPort));
-                    outgoingSocket.Listen(numClients);
-                    outgoingSockets.Add(outgoingSocket);
-
-                    outPort++;
+                    HttpListener listener = new HttpListener();
+                    listener.Prefixes.Add($"http://{ipAddress}:{inPort}/");
+                    listener.Start();
+                    listeners.Add(listener);
                     inPort++;
                     successfulClients++;
                 }
                 catch (SocketException ex)
                 {
-                    //Console.WriteLine($"Ошибка при запуске слушателя на порту {inPort}: {ex.Message}");
                     // Пробуем с новыми значениями портов, не увеличивая счётчик
                     inPort++;
-                    outPort++;
+
                     continue;
                 }
             }
 
         }
-        
-        private void InitializeUdpSockets()
-        {
-            int successfulClients = 0; // Счетчик для успешных соединений
-            while (successfulClients <= numClients)
-            {
-                try
-                {
-                    Socket incomingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                    incomingSocket.Bind(new IPEndPoint(ipAddress, inPort));
-                    incomingSockets.Add(incomingSocket);
-
-                    Socket outgoingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                    outgoingSocket.Bind(new IPEndPoint(ipAddress, outPort));
-                    outgoingSockets.Add(outgoingSocket);
-
-                    outPort++;
-                    inPort++;
-                    successfulClients++;
-                }
-                catch (SocketException ex)
-                {
-                    //Console.WriteLine($"Ошибка при запуске слушателя на порту {inPort}: {ex.Message}");
-                    // Пробуем с новыми значениями портов, не увеличивая счётчик
-                    inPort++;
-                    outPort++;
-                    continue;
-                }
-            }
-        }
-
         private void ChooseAndRunClients()
         {
             if (serverConfig.UploadFile == true)
@@ -352,22 +291,22 @@ namespace AntColonyServer
                 {
 
                     DeployRemoteApp(serverConfig.NameClients[i], Path.Combine(serverConfig.PathToEXE.ToString(),
-                    serverConfig.NameFile),Path.Combine(Directory.GetCurrentDirectory(),
+                    serverConfig.NameFile), Path.Combine(Directory.GetCurrentDirectory(),
                         serverConfig.NameFile), i, serverConfig.Username, serverConfig.Password);
 
                 }
             }
 
-            for (int i = 0; i <numClients; i++)
-            {              
+            for (int i = 0; i < numClients; i++)
+            {
                 if (serverConfig.LocalTest == true)
                 {
                     StartClientProcess(i);
                 }
                 else
-                {                   
-                    ExecuteRemoteApp(serverConfig.NameClients[i], Path.Combine(serverConfig.PathToEXE, 
-                        serverConfig.NameFile),i,serverConfig.Username,serverConfig.Password);
+                {
+                    ExecuteRemoteApp(serverConfig.NameClients[i], Path.Combine(serverConfig.PathToEXE,
+                        serverConfig.NameFile), i, serverConfig.Username, serverConfig.Password);
                 }
             }
         }
@@ -405,44 +344,44 @@ namespace AntColonyServer
 
         private void ExecuteRemoteApp(string remoteComputer, string remotePath, int idClient, string username, string password)
         {
-            SecureString securePassword = new SecureString();
-            foreach (char c in password)
-                securePassword.AppendChar(c);
-            securePassword.MakeReadOnly();
+            //SecureString securePassword = new SecureString();
+            //foreach (char c in password)
+            //    securePassword.AppendChar(c);
+            //securePassword.MakeReadOnly();
 
-            Socket inc = incomingSockets[idClient];
-            Socket outc = outgoingSockets[idClient];
+            ////Socket inc = incomingSockets[idClient];
+            ////Socket outc = outgoingSockets[idClient];
 
-            int inPort = ((IPEndPoint)inc.LocalEndPoint).Port;
-            int outPort = ((IPEndPoint)outc.LocalEndPoint).Port;
+            //int inPort = ((IPEndPoint)inc.LocalEndPoint).Port;
+            //int outPort = ((IPEndPoint)outc.LocalEndPoint).Port;
 
-            // Формируем команду
-            string executeCommand = $"Start-Process -FilePath {remotePath} -ArgumentList \"{ipAddress} {inPort} {outPort}\"";
-            string script = $"{executeCommand}";
+            //// Формируем команду
+            //string executeCommand = $"Start-Process -FilePath {remotePath} -ArgumentList \"{ipAddress} {inPort} {outPort}\"";
+            //string script = $"{executeCommand}";
 
-            // Создаем объект PSCredential с именем пользователя и паролем
-            var credential = new PSCredential(username, securePassword);
+            //// Создаем объект PSCredential с именем пользователя и паролем
+            //var credential = new PSCredential(username, securePassword);
 
-            // Настраиваем подключение с использованием WSManConnectionInfo
-            var connectionInfo = new WSManConnectionInfo(new Uri($"http://{remoteComputer}:5985/wsman"), "http://schemas.microsoft.com/powershell/Microsoft.PowerShell", credential)
-            {
-                AuthenticationMechanism = AuthenticationMechanism.Negotiate
-            };
+            //// Настраиваем подключение с использованием WSManConnectionInfo
+            //var connectionInfo = new WSManConnectionInfo(new Uri($"http://{remoteComputer}:5985/wsman"), "http://schemas.microsoft.com/powershell/Microsoft.PowerShell", credential)
+            //{
+            //    AuthenticationMechanism = AuthenticationMechanism.Negotiate
+            //};
 
-            // Открываем удалённое подключение и выполняем команды
-            runSpace.Add(RunspaceFactory.CreateRunspace(connectionInfo));
+            //// Открываем удалённое подключение и выполняем команды
+            //runSpace.Add(RunspaceFactory.CreateRunspace(connectionInfo));
 
-            runSpace[idClient].Open();
-            pipeline.Add(runSpace[idClient].CreatePipeline());
+            //runSpace[idClient].Open();
+            //pipeline.Add(runSpace[idClient].CreatePipeline());
 
 
-            pipeline[idClient].Commands.AddScript(script);
-            var results = pipeline[idClient].Invoke();
+            //pipeline[idClient].Commands.AddScript(script);
+            //var results = pipeline[idClient].Invoke();
 
-            foreach (var item in results)
-            {
-                Console.WriteLine(item);
-            }
+            //foreach (var item in results)
+            //{
+            //    Console.WriteLine(item);
+            //}
 
         }
 
@@ -450,10 +389,15 @@ namespace AntColonyServer
         {
             Process clientProcess = new Process();
             clientProcess.StartInfo.FileName = serverConfig.NameFile;
-            Socket inc = this.incomingSockets[clientId];
-            Socket outc = this.outgoingSockets[clientId];
-           
-            clientProcess.StartInfo.Arguments = $"{ipAddress} {((IPEndPoint)inc.LocalEndPoint).Port} {((IPEndPoint)inc.LocalEndPoint).Port}";
+            var listeners = this.listeners[clientId].Prefixes;
+            int port = 0;
+            foreach (var lestiner in listeners)
+            {
+                Uri uri = new Uri(lestiner);
+                port = uri.Port;
+                
+            }
+            clientProcess.StartInfo.Arguments = $"{ipAddress} {port}";
             clientProcess.StartInfo.WorkingDirectory = Directory.GetCurrentDirectory();
             clientProcess.Start();
         }
@@ -462,13 +406,13 @@ namespace AntColonyServer
         /// 
         /// </summary>
         /// <returns></returns>
-        private (int bestValue, List<int> bestItems, List<int> allValues, List<int[]> allItems) OneStepAntColony()
+        private async Task<(int bestValue, List<int> bestItems, List<int> allValues, List<int[]> allItems)> OneStepAntColony()
         {
 
             for (int i = 0; i < numClients; i++)
             {
 
-                SendData(i, string.Join(",", pheromone));
+                await SendData(i, string.Join(",", pheromone));
             }
 
             List<int> bestValues = new List<int>();
@@ -478,7 +422,7 @@ namespace AntColonyServer
 
             for (int i = 0; i < this.numClients; i++)
             {
-                string response = ReceiveData(i, 65000);
+                string response = await ReceiveData(i, 65000);
                 var dataParts = response.Split(';');
 
                 int parseInt = 0;
@@ -517,29 +461,37 @@ namespace AntColonyServer
         /// <summary>
         /// Метод для получения TCPClient, подключение клиентов
         /// </summary>
-        private void AcceptClients()
+        private async void AcceptClients()
         {
             if (multiTextWriter is not null)
             {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput(),Encoding.GetEncoding(866)) { AutoFlush = true });
+                Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), Encoding.GetEncoding(866)) { AutoFlush = true });
             }
             for (int i = 0; i < numClients; i++)
             {
-                if (protocolType == ProtocolType.Tcp)
+                HttpListenerContext context = listeners[i].GetContext();
+
+                if (context.Request.IsWebSocketRequest)
                 {
-                    Socket clientSocketIn = incomingSockets[i].Accept(); // Только для TCP
-                    incomingClients.Add(clientSocketIn);
-                    Console.WriteLine($"Клиент {i} подключился к  порту {((IPEndPoint)clientSocketIn.LocalEndPoint)}");
-                    Socket clientSocketOut = outgoingSockets[i].Accept();
-                    outgoingClients.Add(clientSocketOut);
-                    Console.WriteLine($"Клиент {i} подключился к порту {((IPEndPoint)clientSocketOut.LocalEndPoint)}");
-                    Console.WriteLine($"{ipAddress} {((IPEndPoint)clientSocketIn.LocalEndPoint).Port} {((IPEndPoint)clientSocketOut.LocalEndPoint).Port}");
+                    HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
+                    webSockets.Add(wsContext.WebSocket);
+                    var listeners = this.listeners[i].Prefixes;
+                    int port = 0;
+                    foreach (var lestiner in listeners)
+                    {
+                        Uri uri = new Uri(lestiner);
+                        port = uri.Port;
+
+                    }
+                    Console.WriteLine($"Клиент {i} подключился к порту {port}");
+
                 }
                 else
                 {
-                    Console.WriteLine($"UDP сокет готов на порту {inPort + i}...");
-                    // UDP не требует Accept, данные принимаются сразу
+                    context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
+                    context.Response.Close();
                 }
+
             }
             Console.WriteLine($"{new string('-', 32)}");
 
@@ -549,44 +501,33 @@ namespace AntColonyServer
             }
         }
 
-        private void SendData(int clientIndex, string message)
-        { 
-            byte[] data = Encoding.UTF8.GetBytes(message);
-
-            if (protocolType == ProtocolType.Tcp)
+        private async Task SendData(int clientIndex, string message)
+        {
+            if (webSockets[clientIndex].State == WebSocketState.Open)
             {
-                var clientSocket = outgoingClients[clientIndex];
-                clientSocket.Send(data);
-            }
-            else if (protocolType == ProtocolType.Udp)
-            {
-                var clientSocket = outgoingClients[clientIndex];
-                var endpoint = new IPEndPoint(ipAddress, outPort + clientIndex);
-                clientSocket.SendTo(data, endpoint);
+                byte[] responseBuffer = Encoding.UTF8.GetBytes(message);
+                await webSockets[clientIndex].SendAsync(new ArraySegment<byte>(responseBuffer), WebSocketMessageType.Text, true, CancellationToken.None);
             }
         }
 
-        public string ReceiveData(int clientIndex, int countBuffer)
+        public async Task<string> ReceiveData(int clientIndex, int countBuffer)
         {
             byte[] buffer = new byte[countBuffer];
-            if (protocolType == ProtocolType.Tcp)
+
+            if (webSockets[clientIndex].State == WebSocketState.Open)
             {
-                var clientSocket = incomingClients[clientIndex];
-                int bytesRead = clientSocket.Receive(buffer);
-                if (bytesRead == -1) return string.Empty;
-                return Encoding.UTF8.GetString(buffer, 0, bytesRead);
-            }
-            else if (protocolType == ProtocolType.Udp)
-            {
-                var clientSocket = incomingClients[clientIndex];
-                EndPoint remoteEndpoint = new IPEndPoint(IPAddress.Any, 0);
-                int bytesRead = clientSocket.ReceiveFrom(buffer, ref remoteEndpoint);
-                return Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                var result = await webSockets[clientIndex].ReceiveAsync(new ArraySegment<byte>(buffer),
+                    CancellationToken.None);
+                if (result.MessageType == WebSocketMessageType.Text)
+                {
+                    return Encoding.UTF8.GetString(buffer, 0, result.Count);
+                }
+
             }
             return string.Empty;
         }
 
-        private List<int> NumberOfAntsPerClient(int maxAnts,int numSock)
+        private List<int> NumberOfAntsPerClient(int maxAnts, int numSock)
         {
             List<int> nAnts = new List<int>();
             int baseNumAnt = maxAnts / numSock;
@@ -605,7 +546,7 @@ namespace AntColonyServer
             return nAnts;
         }
 
-        public void CloseServer()
+        public async void CloseServer()
         {
             // Закрытие всех pipeline
             if (pipeline != null)
@@ -636,34 +577,23 @@ namespace AntColonyServer
                 runSpace = null;
             }
 
-
-            foreach (var socket in incomingSockets.Concat(outgoingSockets))
+            if (listeners != null)
             {
-                if (socket.Connected)
-                    socket.Shutdown(SocketShutdown.Both);
-                socket.Close();
-            }
-            incomingSockets.Clear();
-            outgoingSockets.Clear();
-
-            // Закрываем все клиенсткие сокеты
-            if (incomingSockets != null)
-            {
-                foreach (var client in incomingSockets)
+                foreach (var listener in listeners)
                 {
-                  client.Close();
+                    listener.Stop();
+                    listener.Close();
                 }
-                incomingSockets.Clear();
             }
 
-            if (outgoingSockets != null)
+            if(webSockets != null)
             {
-                foreach (var client in outgoingSockets)
+                foreach(var socket in webSockets)
                 {
-                    client.Close();
+                    await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Закрытие соединения", CancellationToken.None);
                 }
-                outgoingSockets.Clear();
             }
+
         }
 
     }
@@ -698,11 +628,11 @@ namespace AntColonyServer
 
                 if (int.TryParse(nameClientsValue, out int clientCount))
                 {
-                    
+
                     config.NameClients = new string[clientCount];
                     for (int i = 0; i < clientCount; i++)
                     {
-                        config.NameClients[i] = $"{i+1}"; // инициализируем пустыми строками
+                        config.NameClients[i] = $"{i + 1}"; // инициализируем пустыми строками
                     }
                 }
                 else
@@ -713,7 +643,7 @@ namespace AntColonyServer
 
 
 
-                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config, multiTextWriter);              
+                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config, multiTextWriter);
                 ShowConfig(config);
 
                 try
@@ -739,12 +669,12 @@ namespace AntColonyServer
             catch (Exception e)
             {
                 Console.WriteLine(e.ToString());
-            }         
+            }
         }
- 
+
         static void ShowConfig(ServerConfig serverConfig)
         {
-            Console.WriteLine("{0,30}","-----Конфигурация(config.json)-----");
+            Console.WriteLine("{0,30}", "-----Конфигурация(config.json)-----");
             Console.WriteLine("{0,-30} {1}", "Запуск локально:", serverConfig.LocalTest);
             Console.WriteLine("{0,-30} {1}", "Имена компьютеров:", string.Join(", ", serverConfig.NameClients));
             Console.WriteLine("{0,-30} {1}", "Максимум муравьев:", serverConfig.MaxAnts);
@@ -755,7 +685,7 @@ namespace AntColonyServer
             Console.WriteLine("{0,-30} {1}", "Beta:", serverConfig.Beta);
             Console.WriteLine("{0,-30} {1}", "Q:", serverConfig.Q);
             Console.WriteLine("{0,-30} {1}", "RHO:", serverConfig.RHO);
-            Console.WriteLine("{0,-30} {1}", "Количество предметов:", serverConfig.CountSubjects);          
+            Console.WriteLine("{0,-30} {1}", "Количество предметов:", serverConfig.CountSubjects);
             Console.WriteLine("{0,-30} {1}", "Путь к exe на удаленном хосте:", serverConfig.PathToEXE);
             Console.WriteLine("{0,-30} {1}", "Имя файла:", serverConfig.NameFile);
             Console.WriteLine($"{new string('-', 32)}");

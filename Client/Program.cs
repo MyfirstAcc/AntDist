@@ -1,14 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
-using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 class AntClient
 {
-    private Socket incomingSocket;
-    private Socket outgoingSocket;
+    private ClientWebSocket webSocket;
     private string initData;
     private int[] weights;
     private int[] values;
@@ -18,31 +18,31 @@ class AntClient
     private int nAnts;
     public double[] pheromone;
 
-    public void ConnectToServer(IPAddress serverAddress, int incomingPort, int outgoingPort)
+    public async Task ConnectToServerAsync(Uri serverUri)
     {
-        incomingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        outgoingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        webSocket = new ClientWebSocket();
+        await webSocket.ConnectAsync(serverUri, CancellationToken.None);
 
-        // Подключение к входящему и исходящему порту на сервере
-        incomingSocket.Connect(serverAddress, incomingPort);
-        outgoingSocket.Connect(serverAddress, outgoingPort);
-
-        Console.WriteLine($"Подключен к серверу: {incomingPort} (вход) и {outgoingPort} (выход)");
+        //Console.WriteLine($"Подключен к серверу: {serverUri}");
     }
 
-    public void SendMessage(string message)
+    public async Task SendMessageAsync(string message)
     {
-        // Отправка сообщения через указанный сокет
         byte[] messageBytes = Encoding.UTF8.GetBytes(message);
-        outgoingSocket.Send(messageBytes);
+        await webSocket.SendAsync(new ArraySegment<byte>(messageBytes), WebSocketMessageType.Text, true, CancellationToken.None);
     }
 
-    public string ReceiveMessage(int countBuffer)
+    public async Task<string> ReceiveMessageAsync()
     {
-        // Чтение данных из указанного сокета
         byte[] buffer = new byte[65000];
-        int bytesRead = incomingSocket.Receive(buffer);     
-        return Encoding.UTF8.GetString(buffer, 0, bytesRead);
+        var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+
+        if (result.MessageType == WebSocketMessageType.Text)
+        {
+            return Encoding.UTF8.GetString(buffer, 0, result.Count);
+        }
+
+        return string.Empty;
     }
 
     public void SplitInitData(string initData)
@@ -100,46 +100,42 @@ class AntClient
         return (chosenItems, currentValue);
     }
 
-    public void Close()
+    public async Task CloseAsync()
     {
-        if (incomingSocket != null)
+        if (webSocket != null)
         {
-            incomingSocket.Close();
-            incomingSocket = null;
-        }
-        if (outgoingSocket != null)
-        {
-            outgoingSocket.Close();
-            outgoingSocket = null;
+            await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+            webSocket.Dispose();
+            webSocket = null;
         }
     }
 
-    static void Main(string[] args)
-    {
+    static async Task Main(string[] args)
+    { 
         AntClient client = new AntClient();
+
         try
         {
             if (args.Length == 0)
             {
                 throw new Exception("Нет аргументов командной строки.");
             }
-            string IP = args[0];
-            int inPort = int.Parse(args[1]);
-            int outPort = int.Parse(args[2]);
+            string serverIP = args[0];
+            string serverPort = args[1];
 
-            IPAddress IPParse = IPAddress.Parse(IP);
-            client.ConnectToServer(IPParse, outPort, inPort);
+            Uri serverAddress = new Uri($"ws://{serverIP}:{serverPort}/");
+            await client.ConnectToServerAsync(serverAddress);
 
-            client.SendMessage("READY");
+            await client.SendMessageAsync("READY");
 
-            var str = client.ReceiveMessage(2048);
+            var str = await client.ReceiveMessageAsync();
             client.SplitInitData(str);
 
-            client.SendMessage("READY");
+            await client.SendMessageAsync("READY");
 
             while (true)
             {
-                string inData = client.ReceiveMessage(65000);
+                string inData = await client.ReceiveMessageAsync();
                 if (inData == "end")
                 {
                     break;
@@ -167,10 +163,11 @@ class AntClient
 
                     string allItemsStr = string.Join(",", Array.ConvertAll(allItems, items => string.Join(" ", items)));
                     string toSend = $"{bestValue};{string.Join(" ", bestItems)};{string.Join(" ", allValues)};{allItemsStr}";
-                    client.SendMessage(toSend);
+                    await client.SendMessageAsync(toSend);
                 }
             }
-            client.Close();
+
+            await client.CloseAsync();
         }
         catch (Exception e)
         {
@@ -178,7 +175,7 @@ class AntClient
         }
         finally
         {
-            client.Close();
+            await client.CloseAsync();
         }
     }
 }

@@ -2,7 +2,7 @@
   "profiles": {
     "Client": {
       "commandName": "Project",
-      "commandLineArgs": "192.168.1.30 6000 7000"
+      "commandLineArgs": "192.168.1.30 6000 "
     },
     "Профиль 1": {
       "commandName": "Project",
