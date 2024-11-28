@@ -1,10 +1,10 @@
 {
-  "nameClients": 4,
+  "nameClients": 1,
   "maxAnts": 20,
   "inPort": 6000,
   "username": "User1",
   "password": "user1",
-  "maxIteration": 100,
+  "maxIteration": 200,
   "alpha": 1.0,
   "beta": 5.0,
   "Q": 100,
