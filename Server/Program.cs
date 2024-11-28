@@ -1,5 +1,4 @@
-﻿using Humanizer;
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using System.Diagnostics;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
