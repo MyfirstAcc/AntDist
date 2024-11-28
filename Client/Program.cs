@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
@@ -102,12 +103,13 @@ class AntClient
 
     public async Task CloseAsync()
     {
-        if (webSocket != null)
+        if (webSocket != null && webSocket.State == WebSocketState.Open)
         {
-            await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
-            webSocket.Dispose();
-            webSocket = null;
+            await webSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None);
+            //await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing connection", CancellationToken.None);
         }
+        webSocket?.Dispose();
+        webSocket = null;
     }
 
     static async Task Main(string[] args)
