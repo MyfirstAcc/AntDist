@@ -1,17 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data.Common;
-using System.Data.SQLite;
-using System.DirectoryServices.ActiveDirectory;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using AntColonyServer;
-using Microsoft.VisualBasic;
+﻿using System.Data.SQLite;
 
-namespace Server
+namespace AntColonyServer
 {
-    internal class SQLiteDatabase
+    class SQLiteDatabase
     {
         private readonly string _connectionString;
 
@@ -37,7 +28,8 @@ namespace Server
                 CREATE TABLE IF NOT EXISTS TestRuns (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 TestType TEXT NOT NULL,
-                Data DATETIME NOT NULL
+                Data DATETIME NOT NULL,
+                Local INTEGER
                 );";
 
                         string createTestParametersTable = @"
@@ -72,20 +64,21 @@ namespace Server
         }
 
 
-        public int AddTestRun(string testType, DateTime startTime)
+        public int AddTestRun(string testType, DateTime startTime, bool local)
         {
             using (var connection = new SQLiteConnection(_connectionString))
             {
                 connection.Open();
                 string insertTestRun = @"
-                    INSERT INTO TestRuns (TestType, Data)
-                    VALUES (@TestType, @Data);
+                    INSERT INTO TestRuns (TestType, Data, Local)
+                    VALUES (@TestType, @Data, @Local);
                     SELECT last_insert_rowid();";
 
                 using (var command = new SQLiteCommand(insertTestRun, connection))
                 {
                     command.Parameters.AddWithValue("@TestType", testType);
                     command.Parameters.AddWithValue("@Data", startTime);
+                    command.Parameters.AddWithValue("@Local", Convert.ToInt32(local));
 
 
                     return Convert.ToInt32(command.ExecuteScalar());
