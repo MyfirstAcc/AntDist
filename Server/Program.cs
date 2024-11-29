@@ -29,9 +29,7 @@ namespace AntColonyServer
         public string NameFile { get; set; }
 
         public bool LocalTest { get; set; }
-        public bool UploadFile { get; set; }
-
-        public string LogFilePath { get; set; }
+        public bool UploadFile { get; set; }       
 
         public ServerConfig()
         {
@@ -50,58 +48,10 @@ namespace AntColonyServer
             PathToEXE = "C:\\temp";
             NameFile = "Client.exe";
             LocalTest = true;
-            UploadFile = false;
-            LogFilePath = "";
+            UploadFile = false;           
         }
     }
-
-    public class MultiTextWriter : TextWriter
-    {
-        private readonly TextWriter[] writers;
-
-        public MultiTextWriter(params TextWriter[] writers)
-        {
-            this.writers = writers;
-        }
-
-        public override Encoding Encoding => writers[0].Encoding;
-
-        public override void Write(char value)
-        {
-            foreach (var writer in writers)
-            {
-                writer.Write(value);
-            }
-        }
-
-        public override void WriteLine(string value)
-        {
-            foreach (var writer in writers)
-            {
-                writer.WriteLine(value);
-            }
-        }
-
-        public override void Flush()
-        {
-            foreach (var writer in writers)
-            {
-                writer.Flush();
-            }
-        }
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                foreach (var writer in writers)
-                {
-                    writer.Dispose();
-                }
-            }
-            base.Dispose(disposing);
-        }
-    }
-
+   
     /// <summary>
     /// Алгоритм муравьиной оптимизации (Ant Colony Optimization)
     /// Разбиение задачи для нескольких клиентов 
@@ -130,9 +80,9 @@ namespace AntColonyServer
         private ServerConfig serverConfig;
         private List<Pipeline> pipeline;
         private List<Runspace> runspace;
-        MultiTextWriter multiTextWriter;
 
-        public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig, MultiTextWriter multiTextWriter)
+
+        public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig)
         {
             ipAddress = iPAddress;
             this.serverConfig = serverConfig;
@@ -149,7 +99,6 @@ namespace AntColonyServer
             pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
             pipeline = new List<Pipeline>(this.numClients);
             runspace = new List<Runspace>(this.numClients);
-            this.multiTextWriter = multiTextWriter;
 
         }
         /// <summary>
@@ -446,10 +395,6 @@ namespace AntColonyServer
         /// </summary>
         private void AcceptClients()
         {
-            if (multiTextWriter is not null)
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), Encoding.GetEncoding(866)) { AutoFlush = true });
-            }
             for (int i = 0; i < numClients; i++)
             {
 
@@ -462,11 +407,6 @@ namespace AntColonyServer
                 Console.WriteLine($"Клиент {i} подключился к исходящему порту {((IPEndPoint)outgoingClient.Client.LocalEndPoint).Port}");
             }
             Console.WriteLine($"{new string('-', 32)}");
-
-            if (multiTextWriter is not null)
-            {
-                Console.SetOut(multiTextWriter);
-            }
         }
 
         private void SendData(TcpClient outSocket, string message)
@@ -641,15 +581,7 @@ namespace AntColonyServer
                               .Build();
 
                 var config = configuration.Get<ServerConfig>() ?? new ServerConfig();
-                var nameClientsValue = configuration.GetSection("nameClients").Value;
-                StreamWriter? StreamLogFile;
-                MultiTextWriter? multiTextWriter;
-                StreamLogFile = config.LogFilePath != "" ? new StreamWriter(config.LogFilePath, append: true) { AutoFlush = true } : null;
-                multiTextWriter = StreamLogFile is not null ? new MultiTextWriter(Console.Out, StreamLogFile) : null;
-                if (multiTextWriter is not null)
-                {
-                    Console.SetOut(multiTextWriter);
-                }
+                var nameClientsValue = configuration.GetSection("nameClients").Value;               
 
                 if (int.TryParse(nameClientsValue, out int clientCount))
                 {
@@ -668,7 +600,7 @@ namespace AntColonyServer
 
 
 
-                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config, multiTextWriter);
+                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config);
                 ShowConfig(config);
 
                 AddConfigToStorage(testRunId, config, storage);
@@ -688,12 +620,7 @@ namespace AntColonyServer
                 finally
                 {
                     server.CloseServer();
-                }
-
-                if (multiTextWriter is not null)
-                {
-                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-                }
+                }                
             }
             catch (Exception e)
             {

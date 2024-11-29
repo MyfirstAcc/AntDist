@@ -56,7 +56,7 @@ namespace Server
                 BestItems TEXT NOT NULL,
                 BestValue REAL NOT NULL,
                 MethodRunTime REAL NOT NULL,
-                ClientStartTime REAL NOT NULL,
+                TotalRunTime REAL NOT NULL,
                 FOREIGN KEY (TestRunId) REFERENCES TestRuns(Id)
             );";
 
@@ -118,8 +118,8 @@ namespace Server
             {
                 connection.Open();
                 string insertResult = @"
-            INSERT INTO TestResults (TestRunId, BestItems, BestValue, MethodRunTime, ClientStartTime)
-            VALUES (@TestRunId, @BestItems, @BestValue, @MethodRunTime, @ClientStartTime);";
+            INSERT INTO TestResults (TestRunId, BestItems, BestValue, MethodRunTime, TotalRunTime)
+            VALUES (@TestRunId, @BestItems, @BestValue, @MethodRunTime, @TotalRunTime);";
 
                 using (var command = new SQLiteCommand(insertResult, connection))
                 {
@@ -127,7 +127,7 @@ namespace Server
                     command.Parameters.AddWithValue("@BestItems", bestItems);
                     command.Parameters.AddWithValue("@BestValue", bestValue);
                     command.Parameters.AddWithValue("@MethodRunTime", methodRunTime);
-                    command.Parameters.AddWithValue("@ClientStartTime", clientStartTime);
+                    command.Parameters.AddWithValue("@TotalRunTime", clientStartTime);
                     command.ExecuteNonQuery();
                 }
             }

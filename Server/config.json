@@ -13,6 +13,5 @@
   "countSubjects": 1000,
   "pathToEXE": "C:\\temp",
   "nameFile": "Client.exe",
-  "localtest": true,
-  "logFilePath": "log.txt"
+  "localtest": true
 }
