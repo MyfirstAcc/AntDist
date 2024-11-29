@@ -35,10 +35,6 @@ namespace AntColonyServer
         public bool LocalTest { get; set; }
         public bool UploadFile { get; set; }
 
-        public string LogFilePath { get; set; }
-
-        public string ProtocolType { get; set; }
-
         public ServerConfig()
         {
             NameClients ??= new string[0];
@@ -56,55 +52,6 @@ namespace AntColonyServer
             NameFile = "Client.exe";
             LocalTest = true;
             UploadFile = false;
-            LogFilePath = "";
-            ProtocolType = "tcp";
-        }
-    }
-
-    public class MultiTextWriter : TextWriter
-    {
-        private readonly TextWriter[] writers;
-
-        public MultiTextWriter(params TextWriter[] writers)
-        {
-            this.writers = writers;
-        }
-
-        public override Encoding Encoding => writers[0].Encoding;
-
-        public override void Write(char value)
-        {
-            foreach (var writer in writers)
-            {
-                writer.Write(value);
-            }
-        }
-
-        public override void WriteLine(string value)
-        {
-            foreach (var writer in writers)
-            {
-                writer.WriteLine(value);
-            }
-        }
-
-        public override void Flush()
-        {
-            foreach (var writer in writers)
-            {
-                writer.Flush();
-            }
-        }
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                foreach (var writer in writers)
-                {
-                    writer.Dispose();
-                }
-            }
-            base.Dispose(disposing);
         }
     }
 
@@ -133,9 +80,9 @@ namespace AntColonyServer
         private ServerConfig serverConfig;
         private List<Pipeline> pipeline;
         private List<Runspace> runSpace;
-        MultiTextWriter multiTextWriter;
+        
 
-        public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig, MultiTextWriter multiTextWriter)
+        public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig)
         {
             ipAddress = iPAddress;
             this.serverConfig = serverConfig;
@@ -151,7 +98,6 @@ namespace AntColonyServer
             pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
             pipeline = new List<Pipeline>(this.numClients);
             runSpace = new List<Runspace>(this.numClients);
-            this.multiTextWriter = multiTextWriter;
             listener = new HttpListener();
             clients = new ConcurrentDictionary<int, WebSocket>();
 
@@ -333,11 +279,7 @@ namespace AntColonyServer
         /// Метод для получения TCPClient, подключение клиентов
         /// </summary>
         private async Task AcceptClients()
-        {
-            if (multiTextWriter is not null)
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), Encoding.GetEncoding(866)) { AutoFlush = true });
-            }
+        {           
             for (int i = 0; i < numClients; i++)
             {
                 HttpListenerContext context = await listener.GetContextAsync();
@@ -365,11 +307,6 @@ namespace AntColonyServer
 
             }
             Console.WriteLine($"{new string('-', 32)}");
-
-            if (multiTextWriter is not null)
-            {
-                Console.SetOut(multiTextWriter);
-            }
         }
 
         private void DeployRemoteApp(string remoteComputer, string remotePath, string localFilePath, int i, string username, string password)
@@ -640,15 +577,7 @@ namespace AntColonyServer
                               .Build();
 
                 var config = configuration.Get<ServerConfig>() ?? new ServerConfig();
-                var nameClientsValue = configuration.GetSection("nameClients").Value;
-                StreamWriter? StreamLogFile;
-                MultiTextWriter? multiTextWriter;
-                StreamLogFile = config.LogFilePath != "" ? new StreamWriter(config.LogFilePath, append: true) { AutoFlush = true } : null;
-                multiTextWriter = StreamLogFile is not null ? new MultiTextWriter(Console.Out, StreamLogFile) : null;
-                if (multiTextWriter is not null)
-                {
-                    Console.SetOut(multiTextWriter);
-                }
+                var nameClientsValue = configuration.GetSection("nameClients").Value;           
 
                 if (int.TryParse(nameClientsValue, out int clientCount))
                 {
@@ -666,7 +595,7 @@ namespace AntColonyServer
                 }
 
 
-                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config, multiTextWriter);
+                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config);
                 ShowConfig(config);
                 AddConfigToStorage(testRunId, config, storage);
 
@@ -685,11 +614,6 @@ namespace AntColonyServer
                 finally
                 {
                     server.CloseServer();
-                }
-
-                if (multiTextWriter is not null)
-                {
-                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
                 }
             }
             catch (Exception e)
