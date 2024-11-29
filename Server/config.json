@@ -5,7 +5,7 @@
   "outport": 7000,
   "username": "User1",
   "password": "user1",
-  "maxIteration": 100,
+  "maxIteration": 200,
   "alpha": 1.0,
   "beta": 5.0,
   "Q": 100,
