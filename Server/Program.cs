@@ -11,6 +11,7 @@ using System.Security;
 using System.Security.Policy;
 using System.Text;
 using System.Web.Services.Description;
+using System.Collections.Concurrent;
 
 namespace AntColonyServer
 {
@@ -121,11 +122,10 @@ namespace AntColonyServer
         private readonly int countSubjects;      // Количество предметов
         private int bestValue;
         private readonly int maxIteration;       // Количество итераций
-        private double[] pheromone;     // «привлекательность» каждого элемента или пути для муравьев
-        private List<IPAddress> ipClients;
+        private double[] pheromone;             // «привлекательность» каждого элемента или пути для муравьев
 
-        private List<HttpListener> listeners; // протокол выше, чем Socket
-        private List<WebSocket> webSockets; // протокол выше, чем Socket
+        private HttpListener listener;
+        private ConcurrentDictionary<int, WebSocket> clients;
 
         private int inPort;
         private IPAddress ipAddress;
@@ -136,23 +136,23 @@ namespace AntColonyServer
 
         public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig, MultiTextWriter multiTextWriter)
         {
-            this.ipAddress = iPAddress;
+            ipAddress = iPAddress;
             this.serverConfig = serverConfig;
-            this.numClients = serverConfig.NameClients.Length == 0 ? 4 : serverConfig.NameClients.Length;
-            this.alpha = serverConfig.Alpha;
-            this.beta = serverConfig.Beta;
-            this.RHO = serverConfig.RHO;
-            this.Q = serverConfig.Q;
-            this.countSubjects = serverConfig.CountSubjects;
-            this.bestValue = 0;
-            this.maxIteration = serverConfig.maxIteration;
-            this.inPort = serverConfig.InPort;
-            this.pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
-            this.pipeline = new List<Pipeline>(this.numClients);
-            this.runSpace = new List<Runspace>(this.numClients);
+            numClients = serverConfig.NameClients.Length == 0 ? 4 : serverConfig.NameClients.Length;
+            alpha = serverConfig.Alpha;
+            beta = serverConfig.Beta;
+            RHO = serverConfig.RHO;
+            Q = serverConfig.Q;
+            countSubjects = serverConfig.CountSubjects;
+            bestValue = 0;
+            maxIteration = serverConfig.maxIteration;
+            inPort = serverConfig.InPort;
+            pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
+            pipeline = new List<Pipeline>(this.numClients);
+            runSpace = new List<Runspace>(this.numClients);
             this.multiTextWriter = multiTextWriter;
-            listeners = new List<HttpListener>();
-            webSockets = new List<WebSocket>();
+            listener = new HttpListener();
+            clients = new ConcurrentDictionary<int, WebSocket>();
 
         }
         /// <summary>
@@ -188,7 +188,7 @@ namespace AntColonyServer
             return (values, weights, weightLimit);
         }
 
-        // Метод для суммирования цифр числа
+        /// Метод для суммирования цифр числа
         private int SumOfDigits(long number)
         {
             int sum = 0;
@@ -205,19 +205,17 @@ namespace AntColonyServer
 
             var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);
             var nAnts = NumberOfAntsPerClient(serverConfig.MaxAnts, numClients);
-
             InitializeWebSockets();
 
             var stopwatch = Stopwatch.StartNew();
-
             ChooseAndRunClients();
-
-            AcceptClients();
+            await AcceptClients();
             stopwatch.Stop();
+
             TimeSpan clientStartTimer = stopwatch.Elapsed;
             Console.WriteLine($"--- Время запуска клиентских сокетов : {clientStartTimer.TotalSeconds} с.");
 
-            for (int i = 0; i < webSockets.Count; i++)
+            for (int i = 0; i < clients.Count; i++)
             {
                 string message = await ReceiveData(i, 1024);
                 if (message == "READY")
@@ -231,7 +229,7 @@ namespace AntColonyServer
             List<int> bestItems = new List<int>();
             stopwatch.Reset();
             stopwatch.Start();
-            for (int i = 0; i < webSockets.Count; i++)
+            for (int i = 0; i < clients.Count; i++)
             {
                 var message = await ReceiveData(i, 1024);
                 if (message != "READY")
@@ -281,27 +279,26 @@ namespace AntColonyServer
 
         private void InitializeWebSockets()
         {
-            int successfulClients = 0; // Счетчик для успешных соединений
-            while (successfulClients < numClients)
+            var erorrFlag = true;      
+            while (erorrFlag)
             {
                 try
                 {
-                    HttpListener listener = new HttpListener();
+                    listener = new HttpListener();
                     listener.Prefixes.Add($"http://{ipAddress}:{inPort}/");
                     listener.Start();
-                    listeners.Add(listener);
-                    inPort++;
-                    successfulClients++;
+                    erorrFlag= false;
                 }
                 catch (SocketException ex)
-                {
-                    // Пробуем с новыми значениями портов, не увеличивая счётчик
+                {                   
                     inPort++;
-                    continue;
+                    erorrFlag = true;
+                    continue;                   
                 }
             }
 
         }
+        
         private void ChooseAndRunClients()
         {
             if (serverConfig.UploadFile == true)
@@ -327,6 +324,49 @@ namespace AntColonyServer
                     ExecuteRemoteApp(serverConfig.NameClients[i], Path.Combine(serverConfig.PathToEXE,
                         serverConfig.NameFile), i, serverConfig.Username, serverConfig.Password);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Метод для получения TCPClient, подключение клиентов
+        /// </summary>
+        private async Task AcceptClients()
+        {
+            if (multiTextWriter is not null)
+            {
+                Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), Encoding.GetEncoding(866)) { AutoFlush = true });
+            }
+            for (int i = 0; i < numClients; i++)
+            {
+                HttpListenerContext context = await listener.GetContextAsync();
+
+                if (context.Request.IsWebSocketRequest)
+                {
+                    HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
+                    clients[i] = wsContext.WebSocket;
+                    var listeners = this.listener.Prefixes;
+                    int port = 0;
+                    foreach (var lestiner in listeners)
+                    {
+                        Uri uri = new Uri(lestiner);
+                        port = uri.Port;
+
+                    }
+                    Console.WriteLine($"Клиент {i} подключился к порту {port}");
+
+                }
+                else
+                {
+                    context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
+                    context.Response.Close();
+                }
+
+            }
+            Console.WriteLine($"{new string('-', 32)}");
+
+            if (multiTextWriter is not null)
+            {
+                Console.SetOut(multiTextWriter);
             }
         }
 
@@ -363,52 +403,44 @@ namespace AntColonyServer
 
         private void ExecuteRemoteApp(string remoteComputer, string remotePath, int idClient, string username, string password)
         {
-            //SecureString securePassword = new SecureString();
-            //foreach (char c in password)
-            //    securePassword.AppendChar(c);
-            //securePassword.MakeReadOnly();
+            SecureString securePassword = new SecureString();
+            foreach (char c in password)
+                securePassword.AppendChar(c);
+            securePassword.MakeReadOnly();            
 
-            ////Socket inc = incomingSockets[idClient];
-            ////Socket outc = outgoingSockets[idClient];
+            // Формируем команду
+            string executeCommand = $"Start-Process -FilePath {remotePath} -ArgumentList \"{ipAddress} {getPort()}\"";
+            string script = $"{executeCommand}";
 
-            //int inPort = ((IPEndPoint)inc.LocalEndPoint).Port;
-            //int outPort = ((IPEndPoint)outc.LocalEndPoint).Port;
+            // Создаем объект PSCredential с именем пользователя и паролем
+            var credential = new PSCredential(username, securePassword);
 
-            //// Формируем команду
-            //string executeCommand = $"Start-Process -FilePath {remotePath} -ArgumentList \"{ipAddress} {inPort} {outPort}\"";
-            //string script = $"{executeCommand}";
+            // Настраиваем подключение с использованием WSManConnectionInfo
+            var connectionInfo = new WSManConnectionInfo(new Uri($"http://{remoteComputer}:5985/wsman"), "http://schemas.microsoft.com/powershell/Microsoft.PowerShell", credential)
+            {
+                AuthenticationMechanism = AuthenticationMechanism.Negotiate
+            };
 
-            //// Создаем объект PSCredential с именем пользователя и паролем
-            //var credential = new PSCredential(username, securePassword);
+            // Открываем удалённое подключение и выполняем команды
+            runSpace.Add(RunspaceFactory.CreateRunspace(connectionInfo));
 
-            //// Настраиваем подключение с использованием WSManConnectionInfo
-            //var connectionInfo = new WSManConnectionInfo(new Uri($"http://{remoteComputer}:5985/wsman"), "http://schemas.microsoft.com/powershell/Microsoft.PowerShell", credential)
-            //{
-            //    AuthenticationMechanism = AuthenticationMechanism.Negotiate
-            //};
-
-            //// Открываем удалённое подключение и выполняем команды
-            //runSpace.Add(RunspaceFactory.CreateRunspace(connectionInfo));
-
-            //runSpace[idClient].Open();
-            //pipeline.Add(runSpace[idClient].CreatePipeline());
+            runSpace[idClient].Open();
+            pipeline.Add(runSpace[idClient].CreatePipeline());
 
 
-            //pipeline[idClient].Commands.AddScript(script);
-            //var results = pipeline[idClient].Invoke();
+            pipeline[idClient].Commands.AddScript(script);
+            var results = pipeline[idClient].Invoke();
 
-            //foreach (var item in results)
-            //{
-            //    Console.WriteLine(item);
-            //}
+            foreach (var item in results)
+            {
+                Console.WriteLine(item);
+            }
 
         }
 
-        private void StartClientProcess(int clientId)
+        private int getPort()
         {
-            Process clientProcess = new Process();
-            clientProcess.StartInfo.FileName = serverConfig.NameFile;
-            var listeners = this.listeners[clientId].Prefixes;
+            var listeners = this.listener.Prefixes;
             int port = 0;
             foreach (var lestiner in listeners)
             {
@@ -416,7 +448,15 @@ namespace AntColonyServer
                 port = uri.Port;
 
             }
-            clientProcess.StartInfo.Arguments = $"{ipAddress} {port}";
+            return port;
+        }
+
+        private void StartClientProcess(int clientId)
+        {
+            Process clientProcess = new Process();
+            clientProcess.StartInfo.FileName = serverConfig.NameFile;
+           
+            clientProcess.StartInfo.Arguments = $"{ipAddress} {getPort()}";
             clientProcess.StartInfo.WorkingDirectory = Directory.GetCurrentDirectory();
             clientProcess.Start();
         }
@@ -477,55 +517,13 @@ namespace AntColonyServer
             return result;
         }
 
-        /// <summary>
-        /// Метод для получения TCPClient, подключение клиентов
-        /// </summary>
-        private async void AcceptClients()
-        {
-            if (multiTextWriter is not null)
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), Encoding.GetEncoding(866)) { AutoFlush = true });
-            }
-            for (int i = 0; i < numClients; i++)
-            {
-                HttpListenerContext context = listeners[i].GetContext();
-
-                if (context.Request.IsWebSocketRequest)
-                {
-                    HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
-                    webSockets.Add(wsContext.WebSocket);
-                    var listeners = this.listeners[i].Prefixes;
-                    int port = 0;
-                    foreach (var lestiner in listeners)
-                    {
-                        Uri uri = new Uri(lestiner);
-                        port = uri.Port;
-
-                    }
-                    Console.WriteLine($"Клиент {i} подключился к порту {port}");
-
-                }
-                else
-                {
-                    context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-                    context.Response.Close();
-                }
-
-            }
-            Console.WriteLine($"{new string('-', 32)}");
-
-            if (multiTextWriter is not null)
-            {
-                Console.SetOut(multiTextWriter);
-            }
-        }
-
+       
         private async Task SendData(int clientIndex, string message)
         {
-            if (webSockets[clientIndex].State == WebSocketState.Open)
+            if (clients[clientIndex].State == WebSocketState.Open)
             {
                 byte[] responseBuffer = Encoding.UTF8.GetBytes(message);
-                await webSockets[clientIndex].SendAsync(new ArraySegment<byte>(responseBuffer), WebSocketMessageType.Text, true, CancellationToken.None);
+                await clients[clientIndex].SendAsync(new ArraySegment<byte>(responseBuffer), WebSocketMessageType.Text, true, CancellationToken.None);
             }
         }
 
@@ -533,9 +531,9 @@ namespace AntColonyServer
         {
             byte[] buffer = new byte[countBuffer];
 
-            if (webSockets[clientIndex].State == WebSocketState.Open)
+            if (clients[clientIndex].State == WebSocketState.Open)
             {
-                var result = await webSockets[clientIndex].ReceiveAsync(new ArraySegment<byte>(buffer),
+                var result = await clients[clientIndex].ReceiveAsync(new ArraySegment<byte>(buffer),
                     CancellationToken.None);
                 if (result.MessageType == WebSocketMessageType.Text)
                 {
@@ -596,28 +594,23 @@ namespace AntColonyServer
                 runSpace = null;
             }
 
-            if (listeners != null)
+            if (listener != null)
             {
-                foreach (var listener in listeners)
-                {
-                    listener.Stop();
-                    listener.Close();
-                }
-                listeners.Clear();
-                listeners = null;
+                listener.Stop();
+                listener.Close();
             }
 
-            if (webSockets != null)
-            {
-                foreach (var socket in webSockets)
-                {
-                    if (socket.State == WebSocketState.Open)
-                    {
-                        await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None);
-                        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None);
-                    }
-                }
-            }
+            //if (clients != null)
+            //{
+            //    foreach (var socket in clients)
+            //    {
+            //        if (socket.State == WebSocketState.Open)
+            //        {
+            //            await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None);
+            //            await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None);
+            //        }
+            //    }
+            //}
         }
 
     }
