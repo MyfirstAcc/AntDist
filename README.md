@@ -31,18 +31,19 @@
 
 
 #### Настройки для сервера в config.json:
-
+```JSON
+{
     "nameClients": 2, //всего клиентов (как и для локального, так и для удаленного), если "localtest" = true == имена моугут быть пустыми или указывается цифрой
 
     "maxAnts": 20,
 
-    "inPort": 6000, // с N порта вхоядшие 
+    "inPort": 6000, // с N порта вхоядшие
 
-    "outport": 7000, // с N порта исходящие 
+    "outport": 7000, // с N порта исходящие
 
     "username": "Admin", //не нужно, если "localtest" = true
 
-    "password": "admin" //не нужно, если "localtest" = true
+    "password": "admin", //не нужно, если "localtest" = true
 
     "maxIteration": 200,
 
@@ -60,8 +61,9 @@
 
     "nameFile": "Client.exe", //не нужно, если "localtest" = true
 
-    "localtest": true,
+    "localtest": true, // тестирование через локальный адрес
 
-    "uploadFile": true, // обеспечивает загрзку файла на удаленный компьютер
-`"logFilePath": "log.txt" //Запись в log` 
-    }
+    "uploadFile": true, // обеспечивает загрзку файла на удаленный компьютер    
+
+}
+```
