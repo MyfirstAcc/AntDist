@@ -12,6 +12,7 @@ using System.Security.Policy;
 using System.Text;
 using System.Web.Services.Description;
 using System.Collections.Concurrent;
+using Server;
 
 namespace AntColonyServer
 {
@@ -200,7 +201,7 @@ namespace AntColonyServer
             return sum;
         }
 
-        public async void StartServer()
+        public async Task<(List<int> bestItems, int bestValue, TimeSpan methodRunTimer, TimeSpan totalTime)> StartServer()
         {
 
             var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);
@@ -274,6 +275,7 @@ namespace AntColonyServer
             Console.WriteLine($"--- Общая стоимость: {bestValue}");
             Console.WriteLine($"--- Время выполнения алгоритма: {methodRunTimer.TotalSeconds} с.");
             Console.WriteLine($"--- Общее время выполнения: {(clientStartTimer + methodRunTimer).TotalSeconds} с.");
+            return (bestItems, bestValue, methodRunTimer, (clientStartTimer + methodRunTimer));
 
         }
 
@@ -617,8 +619,13 @@ namespace AntColonyServer
 
     class Program
     {
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
+            string dbFilePath = "testsAnts.db";
+            var typeTest = "WebSocket";
+
+            var storage = new SQLiteDatabase(dbFilePath);
+            int testRunId = storage.AddTestRun(typeTest, DateTime.Now);
 
             Console.WriteLine($"{new string('-', 42)}");
             Console.WriteLine("Алгоритм муравьиной оптимизации (WebSocket)");
@@ -661,10 +668,13 @@ namespace AntColonyServer
 
                 ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config, multiTextWriter);
                 ShowConfig(config);
+                AddConfigToStorage(testRunId, config, storage);
 
                 try
                 {
-                    server.StartServer();
+                    (List<int> bestItems, int bestValue, TimeSpan methodRunTimer, TimeSpan totalTime) = await server.StartServer();
+                    storage.AddTestResult(testRunId, string.Join(",", bestItems), (double)bestValue, methodRunTimer.TotalSeconds, totalTime.TotalSeconds);
+
                     Console.WriteLine("\n");
                     Console.ReadLine();
                 }
@@ -686,6 +696,17 @@ namespace AntColonyServer
             {
                 Console.WriteLine(e.ToString());
             }
+        }
+        static void AddConfigToStorage(int testRunId, ServerConfig serverConfig, SQLiteDatabase storage)
+        {
+            storage.AddTestParameter(testRunId, "Alpha", string.Format($"{serverConfig.Alpha}"));
+            storage.AddTestParameter(testRunId, "Beta", string.Format($"{serverConfig.Beta}"));
+            storage.AddTestParameter(testRunId, "Q", string.Format($"{serverConfig.Q}"));
+            storage.AddTestParameter(testRunId, "RHO", string.Format($"{serverConfig.RHO}"));
+            storage.AddTestParameter(testRunId, "CountSubjects", string.Format($"{serverConfig.CountSubjects}"));
+            storage.AddTestParameter(testRunId, "maxIteration", string.Format($"{serverConfig.maxIteration}"));
+            storage.AddTestParameter(testRunId, "MaxAnts", string.Format($"{serverConfig.MaxAnts}"));
+            storage.AddTestParameter(testRunId, "NumClients", string.Format($"{serverConfig.NameClients.Length}"));
         }
 
         static void ShowConfig(ServerConfig serverConfig)

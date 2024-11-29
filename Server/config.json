@@ -4,7 +4,7 @@
   "inPort": 6000,
   "username": "User1",
   "password": "user1",
-  "maxIteration": 200,
+  "maxIteration": 100,
   "alpha": 1.0,
   "beta": 5.0,
   "Q": 100,
