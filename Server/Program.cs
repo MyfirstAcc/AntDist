@@ -560,17 +560,15 @@ namespace AntColonyServer
         {
             string dbFilePath = "testsAnts.db";
             var typeTest = "WebSocket";
-
-            var storage = new SQLiteDatabase(dbFilePath);
-            int testRunId = storage.AddTestRun(typeTest, DateTime.Now);
-
             Console.WriteLine($"{new string('-', 42)}");
-            Console.WriteLine("Алгоритм муравьиной оптимизации (WebSocket)");
-            Console.WriteLine($"{new string('-', 42)}");
-            // Регистрация поддержки дополнительных кодировок
-            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            Console.WriteLine($"Алгоритм муравьиной оптимизации ({typeTest})");
+            Console.WriteLine($"{new string('-', 42)}");      
+            
             try
             {
+                var storage = new SQLiteDatabase(dbFilePath);
+                int testRunId = storage.AddTestRun(typeTest, DateTime.Now);
+
                 var configuration = new ConfigurationBuilder()
                               .SetBasePath(Directory.GetCurrentDirectory())
                               .AddJsonFile("config.json", optional: false, reloadOnChange: true)
@@ -593,7 +591,6 @@ namespace AntColonyServer
                     // Если это массив, получаем его напрямую
                     config.NameClients = configuration.GetSection("nameClients").Get<string[]>();
                 }
-
 
                 ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config);
                 ShowConfig(config);
