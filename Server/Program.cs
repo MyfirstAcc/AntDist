@@ -6,12 +6,11 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security;
 using System.Text;
+using System.Data.SQLite;
+using Server;
 
 namespace AntColonyServer
 {
-
-    // Более-менее рабочая версия 
-    //код - рука лицо... xD
     public class ServerConfig
     {
         public string[] NameClients { get; set; }
@@ -103,7 +102,6 @@ namespace AntColonyServer
         }
     }
 
-
     /// <summary>
     /// Алгоритм муравьиной оптимизации (Ant Colony Optimization)
     /// Разбиение задачи для нескольких клиентов 
@@ -118,15 +116,15 @@ namespace AntColonyServer
         private readonly int countSubjects;      // Количество предметов
         private int bestValue;
         private readonly int maxIteration;       // Количество итераций
-        private double[] pheromone;     // «привлекательность» каждого элемента или пути для муравьев
-        private List<IPAddress> ipClients;
+        private double[] pheromone;             // «привлекательность» каждого элемента или пути для муравьев
+
         private List<TcpListener> incomingListeners = new List<TcpListener>(); // экземпляры прослушки на вход к клиенту
         private List<TcpListener> outgoingListeners = new List<TcpListener>(); // экземпляры прослушки на выход от клиента
         private List<TcpClient> incomingClients = new List<TcpClient>();       // экземпляры обмена данными на вход клиента
         private List<TcpClient> outgoingClients = new List<TcpClient>();       // экземпляры обмена данными на выход клиенту
         private int inPort;
         private int outPort;
-        private IPAddress ipAddress;     
+        private IPAddress ipAddress;
 
         private PowerShell psLocal;
         private ServerConfig serverConfig;
@@ -136,18 +134,18 @@ namespace AntColonyServer
 
         public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig, MultiTextWriter multiTextWriter)
         {
-            this.ipAddress = iPAddress;
+            ipAddress = iPAddress;
             this.serverConfig = serverConfig;
-            this.numClients = serverConfig.NameClients.Length == 0 ? 4: serverConfig.NameClients.Length;
-            this.alpha = serverConfig.Alpha;
-            this.beta = serverConfig.Beta;
-            this.RHO = serverConfig.RHO;
-            this.Q = serverConfig.Q;
-            this.countSubjects = serverConfig.CountSubjects;
-            this.bestValue = 0;
-            this.maxIteration = serverConfig.maxIteration;
-            this.inPort = serverConfig.InPort;
-            this.outPort = serverConfig.OutPort;
+            numClients = serverConfig.NameClients.Length == 0 ? 4 : serverConfig.NameClients.Length;
+            alpha = serverConfig.Alpha;
+            beta = serverConfig.Beta;
+            RHO = serverConfig.RHO;
+            Q = serverConfig.Q;
+            countSubjects = serverConfig.CountSubjects;
+            bestValue = 0;
+            maxIteration = serverConfig.maxIteration;
+            inPort = serverConfig.InPort;
+            outPort = serverConfig.OutPort;
             pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
             pipeline = new List<Pipeline>(this.numClients);
             runspace = new List<Runspace>(this.numClients);
@@ -200,7 +198,7 @@ namespace AntColonyServer
         }
 
 
-        public void StartServer()
+        public (List<int> bestItems, int bestValue, TimeSpan methodRunTimer, TimeSpan totalTime) StartServer()
         {
             var stopwatch = Stopwatch.StartNew();
             var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);
@@ -269,11 +267,14 @@ namespace AntColonyServer
                 SendData(outSocket, "end");
             }
             stopwatch.Stop();
-            TimeSpan methodRunTimer = stopwatch.Elapsed;
+            TimeSpan methodRunTimer = stopwatch.Elapsed;            
+           
             Console.WriteLine($"--- Состав предметов: {string.Join(",", bestItems)}");
             Console.WriteLine($"--- Общая стоимость: {bestValue}");
-            Console.WriteLine($"--- Время выполнения алгоритма: {methodRunTimer.TotalSeconds} с.");
+            Console.WriteLine($"--- Время выполнения алгоритма:{methodRunTimer.TotalSeconds } с.");
             Console.WriteLine($"--- Общее время выполнения: {(clientStartTimer + methodRunTimer).TotalSeconds} с.");
+
+            return (bestItems, bestValue, methodRunTimer, (clientStartTimer + methodRunTimer));
 
         }
 
@@ -285,22 +286,22 @@ namespace AntColonyServer
                 {
 
                     DeployRemoteApp(serverConfig.NameClients[i], Path.Combine(serverConfig.PathToEXE.ToString(),
-                    serverConfig.NameFile),Path.Combine(Directory.GetCurrentDirectory(),
+                    serverConfig.NameFile), Path.Combine(Directory.GetCurrentDirectory(),
                         serverConfig.NameFile), i, serverConfig.Username, serverConfig.Password);
 
                 }
             }
 
-            for (int i = 0; i <numClients; i++)
-            {              
+            for (int i = 0; i < numClients; i++)
+            {
                 if (serverConfig.LocalTest == true)
                 {
                     StartClientProcess(i);
                 }
                 else
-                {                   
-                    ExecuteRemoteApp(serverConfig.NameClients[i], Path.Combine(serverConfig.PathToEXE, 
-                        serverConfig.NameFile),i,serverConfig.Username,serverConfig.Password);
+                {
+                    ExecuteRemoteApp(serverConfig.NameClients[i], Path.Combine(serverConfig.PathToEXE,
+                        serverConfig.NameFile), i, serverConfig.Username, serverConfig.Password);
                 }
             }
         }
@@ -345,7 +346,7 @@ namespace AntColonyServer
 
             TcpListener inc = incomingListeners[idClient];
             TcpListener outc = outgoingListeners[idClient];
-            
+
             string executeCommand = $"Start-Process -FilePath {remotePath} -ArgumentList \" {ipAddress} {((IPEndPoint)inc.LocalEndpoint).Port} {((IPEndPoint)outc.LocalEndpoint).Port}\"";
             string script = $"{executeCommand}";
 
@@ -447,7 +448,7 @@ namespace AntColonyServer
         {
             if (multiTextWriter is not null)
             {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput(),Encoding.GetEncoding(866)) { AutoFlush = true });
+                Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), Encoding.GetEncoding(866)) { AutoFlush = true });
             }
             for (int i = 0; i < numClients; i++)
             {
@@ -524,7 +525,7 @@ namespace AntColonyServer
         }
 
 
-        private List<int> NumberOfAntsPerClient(int maxAnts,int numSock)
+        private List<int> NumberOfAntsPerClient(int maxAnts, int numSock)
         {
             List<int> nAnts = new List<int>();
             int baseNumAnt = maxAnts / numSock;
@@ -600,7 +601,7 @@ namespace AntColonyServer
             {
                 foreach (var client in incomingClients)
                 {
-                  client.Close();
+                    client.Close();
                 }
                 incomingClients.Clear();
             }
@@ -618,12 +619,17 @@ namespace AntColonyServer
     }
 
     class Program
-    {
+    { 
         static void Main(string[] args)
         {
+            string dbFilePath = "testsAnts.db";
+            var typeTest = "TcpClient";
+
+            var storage = new SQLiteDatabase(dbFilePath);
+            int testRunId = storage.AddTestRun(typeTest, DateTime.Now);
 
             Console.WriteLine($"{new string('-', 42)}");
-            Console.WriteLine("Алгоритм муравьиной оптимизации (Socket)");
+            Console.WriteLine($"Алгоритм муравьиной оптимизации ({typeTest})");
             Console.WriteLine($"{new string('-', 42)}");
             // Регистрация поддержки дополнительных кодировок
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -647,11 +653,11 @@ namespace AntColonyServer
 
                 if (int.TryParse(nameClientsValue, out int clientCount))
                 {
-                    
+
                     config.NameClients = new string[clientCount];
                     for (int i = 0; i < clientCount; i++)
                     {
-                        config.NameClients[i] = $"{i+1}"; // инициализируем пустыми строками
+                        config.NameClients[i] = $"{i + 1}"; // инициализируем пустыми строками
                     }
                 }
                 else
@@ -662,12 +668,16 @@ namespace AntColonyServer
 
 
 
-                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config, multiTextWriter);              
+                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config, multiTextWriter);
                 ShowConfig(config);
+
+                AddConfigToStorage(testRunId, config, storage);
 
                 try
                 {
-                    server.StartServer();
+                    (List<int> bestItems, int bestValue, TimeSpan methodRunTimer, TimeSpan totalTime) = server.StartServer();
+                    storage.AddTestResult(testRunId, string.Join(",", bestItems), (double)bestValue, methodRunTimer.TotalSeconds, totalTime.TotalSeconds);
+
                     Console.WriteLine("\n");
                     Console.ReadLine();
                 }
@@ -688,13 +698,27 @@ namespace AntColonyServer
             catch (Exception e)
             {
                 Console.WriteLine(e.ToString());
-            }         
+            }
         }
- 
+
+        static void AddConfigToStorage(int testRunId, ServerConfig serverConfig, SQLiteDatabase storage)
+        {
+            storage.AddTestParameter(testRunId, "Alpha", string.Format($"{serverConfig.Alpha}"));
+            storage.AddTestParameter(testRunId, "Beta", string.Format($"{serverConfig.Beta}"));
+            storage.AddTestParameter(testRunId, "Q", string.Format($"{serverConfig.Q}"));
+            storage.AddTestParameter(testRunId, "RHO", string.Format($"{serverConfig.RHO}"));
+            storage.AddTestParameter(testRunId, "CountSubjects", string.Format($"{serverConfig.CountSubjects}"));
+            storage.AddTestParameter(testRunId, "maxIteration", string.Format($"{serverConfig.maxIteration}"));
+            storage.AddTestParameter(testRunId, "MaxAnts", string.Format($"{serverConfig.MaxAnts}"));           
+            storage.AddTestParameter(testRunId, "NumClients", string.Format($"{serverConfig.NameClients.Length}"));
+
+
+        }
+
         static void ShowConfig(ServerConfig serverConfig)
         {
-            Console.WriteLine("{0,30}","-----Конфигурация(config.json)-----");
-            Console.WriteLine("{0,-30} {1}", "Запуск локально:", serverConfig.LocalTest);
+            Console.WriteLine("{0,30}", "-----Конфигурация(config.json)-----");
+            Console.WriteLine("{0,-30} {1}", "Запуск локально:", serverConfig.LocalTest);     
             Console.WriteLine("{0,-30} {1}", "Имена компьютеров:", string.Join(", ", serverConfig.NameClients));
             Console.WriteLine("{0,-30} {1}", "Максимум муравьев:", serverConfig.MaxAnts);
             Console.WriteLine("{0,-30} {1}", "Username:", serverConfig.Username);
@@ -704,7 +728,7 @@ namespace AntColonyServer
             Console.WriteLine("{0,-30} {1}", "Beta:", serverConfig.Beta);
             Console.WriteLine("{0,-30} {1}", "Q:", serverConfig.Q);
             Console.WriteLine("{0,-30} {1}", "RHO:", serverConfig.RHO);
-            Console.WriteLine("{0,-30} {1}", "Количество предметов:", serverConfig.CountSubjects);          
+            Console.WriteLine("{0,-30} {1}", "Количество предметов:", serverConfig.CountSubjects);
             Console.WriteLine("{0,-30} {1}", "Путь к exe на удаленном хосте:", serverConfig.PathToEXE);
             Console.WriteLine("{0,-30} {1}", "Имя файла:", serverConfig.NameFile);
             Console.WriteLine($"{new string('-', 32)}");
