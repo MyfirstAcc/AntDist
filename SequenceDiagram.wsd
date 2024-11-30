@@ -1,75 +1,39 @@
 @startuml ElDoc
 
 autonumber
-skin rose
-scale 0.9
-title Типичная работа с ЭДО
-actor "Пользователь" as User
-participant "Граф. интерфейс" as UIComponent
-participant "Модуль проекта" as EProject
-participant "Авторизация" as Auth
-participant "Модуль файла" as File
-database "База данных" as BD 
+title Распределенный алгоритм
+actor User
+participant Server
+participant Client
 
-User -> UIComponent: Открыть проект
-activate User
-activate UIComponent
-UIComponent ->> EProject: Поиск проекта
-activate EProject 
-EProject -> Auth : Проверка сессии
-activate Auth
-Auth ->> BD : Запрос данных
-activate BD
-Auth <-- BD : Данные о пользователе 
-deactivate BD
-EProject <-- Auth : Создание сессии
-deactivate Auth
-EProject ->> BD : Информация о файлах
-activate BD
-EProject <-- BD : Данные о файлах
-deactivate BD
-UIComponent <-- EProject : Список файлов
-deactivate EProject
-User <-- UIComponent: Отображение списка
-deactivate UIComponent
-deactivate User
+User -> Server : Запуск сервера
+activate Server
+Server -> Server : Чтение конфигурации
+Server -> Server : Создание сокетов
+Server -> Client : Удаленное включение процесса
+activate Client
 
-User -> UIComponent : Открыть файл
-activate User
-activate UIComponent
-UIComponent ->> EProject : Индекс файла
-activate EProject
-EProject -> Auth : Проверка сессии
-activate Auth
-Auth ->> BD : Запрос данных
-activate BD
-Auth <-- BD : Данные о пользователе 
-deactivate BD
-EProject <-- Auth : Информация о сессии
-deactivate Auth
-EProject ->> BD : Поиск файла
-activate BD
-BD --> EProject : Путь до файла
-deactivate BD
-EProject -> File : Открыть файл
-activate File
-EProject <-- File : Данные о файле
-deactivate File
-EProject ->File : Преобразовать
-activate File
-EProject <-- File : Данные файла
-deactivate File
-EProject -> Auth : Поставить на контроль
-activate Auth
-Auth ->> BD : Сделать пометку 
-activate BD
-Auth <-- BD : Получение подтверждения
-deactivate BD
-EProject <-- Auth : Информация о сессии
-deactivate Auth
-UIComponent <-- EProject : Данные файла
-deactivate EProject
-User <-- UIComponent : Отображение данных
-deactivate UIComponent
-deactivate User
+Client --> Server : Подключение к портам
+deactivate Client
+
+Server ->> Client: Отправка начальных данных
+activate Client
+
+Client -->> Server: Подтверждение принятых данных
+deactivate Client
+
+
+loop итерация колонии
+Server ->> Client: Отправка феромонов
+activate Client
+Client -> Client: выполнение алгоритма
+Client -->> Server: Возврат локальных результатов (Решения)
+Server -> Server : Обновление лучшего результата
+Server -> Server: Обновление феромонов
+Server ->> Client: Отправка обновленных феремонов
+deactivate Client
+end
+deactivate Server
+
+Server --> User : Получение лучшего результа
 @enduml
