@@ -1,14 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
 class AntClient
 {
-    private Socket incomingSocket;
-    private Socket outgoingSocket;
+    private Socket Recived;
+    private Socket Send;
+    private IPEndPoint RecivedEndPoint;
+    private IPEndPoint SendEndPoint;
+
     private string initData;
     private int[] weights;
     private int[] values;
@@ -17,32 +17,69 @@ class AntClient
     private double beta;
     private int nAnts;
     public double[] pheromone;
+    private ProtocolType protocolType; // Тип протокола: TCP или UDP
 
-    public void ConnectToServer(IPAddress serverAddress, int incomingPort, int outgoingPort)
+    public void ConnectToServer(IPAddress serverAddress, int recivedPort, int sendPort, ProtocolType protocolType)
     {
-        incomingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        outgoingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        this.protocolType = protocolType;
+        if (protocolType == ProtocolType.Tcp)
+        {
+            Recived = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            Send = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
-        // Подключение к входящему и исходящему порту на сервере
-        incomingSocket.Connect(serverAddress, incomingPort);
-        outgoingSocket.Connect(serverAddress, outgoingPort);
+            // Подключение к входящему и исходящему порту на сервере
+            Recived.Connect(serverAddress, recivedPort);
+            Send.Connect(serverAddress, sendPort);
 
-        Console.WriteLine($"Подключен к серверу: {incomingPort} (вход) и {outgoingPort} (выход)");
+            Console.WriteLine($"Подключен к серверу: {recivedPort} (вход) и {sendPort} (выход)");
+        }
+        else if (protocolType == ProtocolType.Udp)
+        {
+            // Реализация UDP
+            Recived = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            RecivedEndPoint = new IPEndPoint(serverAddress, recivedPort);
+            Recived.Bind(RecivedEndPoint);    
+         
+            SendEndPoint = new IPEndPoint(serverAddress, sendPort);        
+
+            Console.WriteLine($"Настроен UDP-сокет: {recivedPort} (вход) и {sendPort} (выход)");
+        }
     }
 
     public void SendMessage(string message)
     {
-        // Отправка сообщения через указанный сокет
-        byte[] messageBytes = Encoding.UTF8.GetBytes(message);
-        outgoingSocket.Send(messageBytes);
+        if (protocolType == ProtocolType.Tcp)
+        {
+            // Существующая реализация для TCP
+            byte[] messageBytes = Encoding.UTF8.GetBytes(message);
+            Send.Send(messageBytes);
+        }
+        else if (protocolType == ProtocolType.Udp)
+        {
+            // Реализация для UDP
+            byte[] messageBytes = Encoding.UTF8.GetBytes(message);
+            Recived.SendTo(messageBytes, SendEndPoint);
+        }
     }
 
     public string ReceiveMessage(int countBuffer)
     {
-        // Чтение данных из указанного сокета
-        byte[] buffer = new byte[65000];
-        int bytesRead = incomingSocket.Receive(buffer);     
-        return Encoding.UTF8.GetString(buffer, 0, bytesRead);
+        if (protocolType == ProtocolType.Tcp)
+        {
+            // Существующая реализация для TCP
+            byte[] buffer = new byte[65000];
+            int bytesRead = Recived.Receive(buffer);
+            return Encoding.UTF8.GetString(buffer, 0, bytesRead);
+        }
+        else if (protocolType == ProtocolType.Udp)
+        {
+            // Реализация для UDP
+            byte[] buffer = new byte[65000];
+            EndPoint remoteEP = RecivedEndPoint;
+            int bytesRead = Recived.ReceiveFrom(buffer, ref remoteEP);
+            return Encoding.UTF8.GetString(buffer, 0, bytesRead);
+        }
+        throw new InvalidOperationException("Неподдерживаемый протокол");
     }
 
     public void SplitInitData(string initData)
@@ -102,20 +139,20 @@ class AntClient
 
     public void Close()
     {
-        if (incomingSocket != null)
+        if (Recived != null)
         {
-            incomingSocket.Close();
-            incomingSocket = null;
+            Recived.Close();
+            Recived = null;
         }
-        if (outgoingSocket != null)
+        if (Send != null)
         {
-            outgoingSocket.Close();
-            outgoingSocket = null;
+            Send.Close();
+            Send = null;
         }
     }
 
     static void Main(string[] args)
-    {
+    {   
         AntClient client = new AntClient();
         try
         {
@@ -126,9 +163,12 @@ class AntClient
             string IP = args[0];
             int inPort = int.Parse(args[1]);
             int outPort = int.Parse(args[2]);
+            string typeProtocol = args[3];
 
             IPAddress IPParse = IPAddress.Parse(IP);
-            client.ConnectToServer(IPParse, outPort, inPort);
+
+
+            client.ConnectToServer(IPParse, outPort, inPort, typeProtocol.ToLower() == "tcp" ? ProtocolType.Tcp : ProtocolType.Udp);
 
             client.SendMessage("READY");
 
