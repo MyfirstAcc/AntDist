@@ -11,7 +11,6 @@ participant "Авторизация" as Auth
 participant "Модуль файла" as File
 database "База данных" as BD 
 
-
 User -> UIComponent: Открыть проект
 activate User
 activate UIComponent
@@ -34,7 +33,6 @@ deactivate EProject
 User <-- UIComponent: Отображение списка
 deactivate UIComponent
 deactivate User
-
 
 User -> UIComponent : Открыть файл
 activate User
