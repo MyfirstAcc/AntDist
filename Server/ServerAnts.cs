@@ -5,9 +5,8 @@ using System.Net.Sockets;
 using System.Net;
 using System.Security;
 using System.Text;
-using AntColonyServer;
 
-namespace Server
+namespace AntColonyServer
 {
     /// <summary>
     /// Алгоритм муравьиной оптимизации (Ant Colony Optimization)

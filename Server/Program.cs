@@ -1,7 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using System.Net;
 using System.Net.Sockets;
-using Server;
 
 namespace AntColonyServer
 {
@@ -41,7 +40,7 @@ namespace AntColonyServer
                 }
 
                 var storage = new SQLiteDatabase(dbFilePath);
-                int testRunId = storage.AddTestRun(typeTest, DateTime.Now, config.LocalTest);
+                int testRunId = storage.AddTestRun(typeTest, DateTime.Now, config.LocalTest, config.ProtocolType);
 
                 ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config);
                 ShowConfig(config);
@@ -52,9 +51,7 @@ namespace AntColonyServer
                 {
                     (List<int> bestItems, int bestValue, TimeSpan methodRunTimer, TimeSpan totalTime) = server.StartServer();
                     storage.AddTestResult(testRunId, string.Join(",", bestItems), (double)bestValue, methodRunTimer.TotalSeconds, totalTime.TotalSeconds);
-
                     Console.WriteLine("\n");
-                    Console.ReadLine();
                 }
                 catch (Exception ex)
                 {
@@ -67,8 +64,10 @@ namespace AntColonyServer
             }
             catch (Exception e)
             {
+             
                 Console.WriteLine(e.ToString());
             }
+            Console.ReadLine();
         }
 
         static void AddConfigToStorage(int testRunId, ServerConfig serverConfig, SQLiteDatabase storage)

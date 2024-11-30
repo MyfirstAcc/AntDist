@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Server
+﻿namespace AntColonyServer
 {
     public class ServerConfig
     {
@@ -22,9 +16,9 @@ namespace Server
         public int CountSubjects { get; set; }
         public string PathToEXE { get; set; }
         public string NameFile { get; set; }
-
         public bool LocalTest { get; set; }
         public bool UploadFile { get; set; }
+        public string ProtocolType { get; set; }
 
         public ServerConfig()
         {
@@ -44,6 +38,7 @@ namespace Server
             NameFile = "Client.exe";
             LocalTest = true;
             UploadFile = false;
+            ProtocolType = "tcp";
         }
     }
 }
