@@ -53,7 +53,6 @@ namespace AntColonyServer
                     storage.AddTestResult(testRunId, string.Join(",", bestItems), (double)bestValue, methodRunTimer.TotalSeconds, totalTime.TotalSeconds);
 
                     Console.WriteLine("\n");
-                    Console.ReadLine();
                 }
                 catch (Exception ex)
                 {
@@ -68,6 +67,7 @@ namespace AntColonyServer
             {
                 Console.WriteLine(e.ToString());
             }
+        Console.ReadLine();
         }
 
         static void AddConfigToStorage(int testRunId, ServerConfig serverConfig, SQLiteDatabase storage)
