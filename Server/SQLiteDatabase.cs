@@ -2,7 +2,7 @@
 
 namespace AntColonyServer
 {
-    class SQLiteDatabase
+    internal class SQLiteDatabase
     {
         private readonly string _connectionString;
 
@@ -29,7 +29,8 @@ namespace AntColonyServer
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 TestType TEXT NOT NULL,
                 Data DATETIME NOT NULL,
-                Local INTEGER
+                Local INTEGER,
+                TypeProtocol TEXT NOT NULL
                 );";
 
                         string createTestParametersTable = @"
@@ -64,14 +65,14 @@ namespace AntColonyServer
         }
 
 
-        public int AddTestRun(string testType, DateTime startTime, bool local)
+        public int AddTestRun(string testType, DateTime startTime, bool local, string typeProtocol)
         {
             using (var connection = new SQLiteConnection(_connectionString))
             {
                 connection.Open();
                 string insertTestRun = @"
-                    INSERT INTO TestRuns (TestType, Data, Local)
-                    VALUES (@TestType, @Data, @Local);
+                    INSERT INTO TestRuns (TestType, Data, Local, TypeProtocol)
+                    VALUES (@TestType, @Data, @Local, @TypeProtocol);
                     SELECT last_insert_rowid();";
 
                 using (var command = new SQLiteCommand(insertTestRun, connection))
@@ -79,6 +80,7 @@ namespace AntColonyServer
                     command.Parameters.AddWithValue("@TestType", testType);
                     command.Parameters.AddWithValue("@Data", startTime);
                     command.Parameters.AddWithValue("@Local", Convert.ToInt32(local));
+                    command.Parameters.AddWithValue("@TypeProtocol", typeProtocol);
 
 
                     return Convert.ToInt32(command.ExecuteScalar());

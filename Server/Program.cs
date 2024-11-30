@@ -40,7 +40,7 @@ namespace AntColonyServer
                 }
 
                 var storage = new SQLiteDatabase(dbFilePath);
-                int testRunId = storage.AddTestRun(typeTest, DateTime.Now, config.LocalTest);
+                int testRunId = storage.AddTestRun(typeTest, DateTime.Now, config.LocalTest,config.ProtocolType);
 
                 ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config);
                 ShowConfig(config);
