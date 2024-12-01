@@ -8,6 +8,15 @@ namespace AntColonyServer
     { 
         static void Main(string[] args)
         {
+            bool delay = true;
+
+            if (args.Length != 0)
+            {
+                if (args[0] == "d")
+                {
+                    delay = false;
+                }
+            }
             string dbFilePath = "testsAnts.db";
             var typeTest = "TcpClient";
             Console.WriteLine($"{new string('-', 42)}");
@@ -63,11 +72,13 @@ namespace AntColonyServer
                 }                
             }
             catch (Exception e)
-            {
-             
+            {             
                 Console.WriteLine(e.ToString());
             }
-            Console.ReadLine();
+            if (delay)
+            {
+                Console.ReadLine();
+            }
         }
 
         static void AddConfigToStorage(int testRunId, ServerConfig serverConfig, SQLiteDatabase storage)
