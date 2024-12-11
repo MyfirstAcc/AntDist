@@ -198,8 +198,8 @@ namespace AntColonyServer
                     erorrFlag = true;
                     continue;
                 }
+                
             }
-
         }
 
         private void ChooseAndRunClients()
@@ -231,7 +231,7 @@ namespace AntColonyServer
         }
 
         /// <summary>
-        /// Метод для получения TCPClient, подключение клиентов
+        /// Метод для получения подтверждения клиентов
         /// </summary>
         private async Task AcceptClients()
         {
@@ -245,13 +245,15 @@ namespace AntColonyServer
                     clients[i] = wsContext.WebSocket;
                     var listeners = this.listener.Prefixes;
                     int port = 0;
+                    string ip = "";
                     foreach (var lestiner in listeners)
                     {
                         Uri uri = new Uri(lestiner);
+                        ip = uri.Host;
                         port = uri.Port;
 
                     }
-                    Console.WriteLine($"Клиент {i} подключился к порту {port}");
+                    Console.WriteLine($"Клиент {i} подключился к {ip}:{port}");
 
                 }
                 else
@@ -488,11 +490,11 @@ namespace AntColonyServer
                 runSpace = null;
             }
 
-            if (listener != null)
-            {
-                listener.Stop();
-                listener.Close();
-            }
+            //if (listener != null)
+            //{
+            //    listener.Stop();
+            //    listener.Close();
+            //}
 
             //if (clients != null)
             //{

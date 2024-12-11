@@ -8,6 +8,29 @@ namespace AntColonyServer
     {
         static async Task Main(string[] args)
         {
+            var delay = true;
+
+            foreach (var arg in args) //-delay=no (без задержки)
+            {
+                if (arg.StartsWith("-delay"))
+                {
+                    // Если параметр содержит "-delay", проверяем следующее значение
+                    var parts = arg.Split('='); 
+                    if (parts.Length == 2 && parts[0] == "-delay")
+                    {
+                        if (parts[1].ToLower() == "no")
+                        {
+                            delay = false;
+                        }
+                        else if (parts[1].ToLower() == "yes")
+                        {
+                            delay = true;
+                        }
+                    }
+                }
+            }
+
+
             string dbFilePath = "testsAnts.db";
             var typeTest = "WebSocket";
             Console.WriteLine($"{new string('-', 42)}");
@@ -42,7 +65,7 @@ namespace AntColonyServer
                 var storage = new SQLiteDatabase(dbFilePath);
                 int testRunId = storage.AddTestRun(typeTest, DateTime.Now, config.LocalTest,config.ProtocolType);
 
-                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress()), config);
+                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress(config.LocalTest)), config);
                 ShowConfig(config);
 
                 AddConfigToStorage(testRunId, config, storage);
@@ -67,7 +90,7 @@ namespace AntColonyServer
             {
                 Console.WriteLine(e.ToString());
             }
-        Console.ReadLine();
+        if(delay) Console.ReadLine();
         }
 
         static void AddConfigToStorage(int testRunId, ServerConfig serverConfig, SQLiteDatabase storage)
@@ -103,17 +126,25 @@ namespace AntColonyServer
             Console.WriteLine($"{new string('-', 32)}");
         }
 
-        static string GetLocalIPAddress()
+        static string GetLocalIPAddress(bool local)
         {
-            var host = Dns.GetHostEntry(Dns.GetHostName());
-            foreach (var ip in host.AddressList)
+            if (local)
             {
-                if (ip.AddressFamily == AddressFamily.InterNetwork) // IPv4
-                {
-                    return ip.ToString();
-                }
+                return "127.0.0.1";
             }
-            throw new Exception("Локальный IP-адрес не найден!");
+            else
+            {
+                var host = Dns.GetHostEntry(Dns.GetHostName());
+                foreach (var ip in host.AddressList)
+                {
+                    if (ip.AddressFamily == AddressFamily.InterNetwork) // IPv4
+                    {
+                        return ip.ToString();
+                    }
+                }
+
+                return "127.0.0.1";
+            }
         }
     }
 
