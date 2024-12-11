@@ -1,0 +1,44 @@
+@startuml
+skin rose
+scale 0.9
+class Program {
+    + Main(args: string[]): Task
+    + ShowConfig(config: ServerConfig): void
+    + AddConfigToStorage(testRunId: int, config: ServerConfig, storage: SQLiteDatabase): void
+}
+
+class ServerAnts {
+    + StartServer(): Task<(List<int>, int, TimeSpan, TimeSpan)>
+    + CloseServer(): void
+    - ipAddress: IPAddress
+    - serverConfig: ServerConfig
+    - database: SQLiteDatabase
+}
+
+class SQLiteDatabase {
+    + AddTestRun(typeTest: string, dateTime: DateTime, localTest: bool, protocolType: string): int
+    + AddTestResult(testRunId: int, bestItems: string, bestValue: double, methodRunTime: double, totalTime: double): void
+    - _connectionString: string
+}
+
+class ServerConfig {
+    + Alpha: double
+    + Beta: double
+    + CountSubjects: int
+    + LocalTest: bool
+    + MaxAnts: int
+    + NameClients: string[]
+    + PathToEXE: string
+    + ProtocolType: string
+    + Username: string
+    + Password: string
+}
+
+Program --> ServerAnts : создаёт экземпляр сервера
+Program --> SQLiteDatabase : использует объект
+Program --> ServerConfig : получает конфигурацию
+
+ServerAnts --> SQLiteDatabase : сохраняет данные в БД
+ServerAnts --> ServerConfig : использует настройки
+
+@enduml
