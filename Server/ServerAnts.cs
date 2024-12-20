@@ -26,7 +26,7 @@ namespace AntColonyServer
         private int bestValue;
         private readonly int maxIteration;       // Количество итераций
         private double[] pheromone;             // «привлекательность» каждого элемента или пути для муравьев
-        private ConcurrentDictionary<int, WebSocket> clients;
+        private ConcurrentDictionary<int, WebSocket> clients; 
 
         private int inPort;
         private IPAddress ipAddress;
@@ -41,7 +41,7 @@ namespace AntColonyServer
         {
             ipAddress = iPAddress;
             this.serverConfig = serverConfig;
-            numClients = serverConfig.NameClients.Length == 0 ? 4 : serverConfig.NameClients.Length;
+            numClients = serverConfig.NumClients;
             alpha = serverConfig.Alpha;
             beta = serverConfig.Beta;
             RHO = serverConfig.RHO;
@@ -56,7 +56,7 @@ namespace AntColonyServer
 
         }
         /// <summary>
-        /// Загрузка исходного набора данных
+        /// Загрузка исходного набора данных, псевдослучайные числа
         /// </summary>
         /// <param name="countSubjects">кол-во предметов</param>
         /// <returns></returns>
@@ -99,7 +99,6 @@ namespace AntColonyServer
             }
             return sum;
         }
-
 
         public async Task<(List<int> bestItems, int bestValue, TimeSpan methodRunTimer, TimeSpan totalTime)> StartServer()
         {
@@ -183,7 +182,6 @@ namespace AntColonyServer
         {
             bool errorFlag = true;
 
-
             while (errorFlag)
             {
                 try
@@ -191,7 +189,7 @@ namespace AntColonyServer
                     tcpClientListener = new TcpListener(ipAddress, port);
                     tcpClientListener.Start();
                     errorFlag = false;
-                    Console.WriteLine(ipAddress.ToString()+port);
+                    Console.WriteLine($"URL: ws://{ipAddress.ToString()}:{port}");
 
                 }
                 catch (SocketException ex)
@@ -202,15 +200,16 @@ namespace AntColonyServer
                 }
             }
 
-
             for (int i = 0; i < numClients; i++)
             {
-                Console.WriteLine("---> Waiting for connection...");
+                Console.WriteLine ($"---> Waiting for connection...{i} of {numClients}");
                 tcpClient = await tcpClientListener.AcceptTcpClientAsync();
 
-                // Обрабатываем соединение в новом потоке
                 _ = HandleClientAsync(tcpClient);
+                
             }
+            Console.Write($"");
+
         }
 
         private async Task HandleClientAsync(TcpClient tcpClient)
@@ -230,8 +229,6 @@ namespace AntColonyServer
             clients[clientId] = webSocket;
 
         }
-
-
 
         private async Task<WebSocket> UpgradeToWebSocketAsync(NetworkStream stream)
         {

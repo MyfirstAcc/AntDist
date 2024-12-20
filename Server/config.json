@@ -1,5 +1,5 @@
 {
-  "nameClients": 2,
+  "numClients": 2,
   "maxAnts": 20,
   "inPort": 8081,
   "maxIteration": 100,

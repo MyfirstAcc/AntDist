@@ -44,28 +44,12 @@ namespace AntColonyServer
                               .AddJsonFile("config.json", optional: false, reloadOnChange: true)
                               .Build();
 
-                var config = configuration.Get<ServerConfig>() ?? new ServerConfig();
-                var nameClientsValue = configuration.GetSection("nameClients").Value;
-
-                if (int.TryParse(nameClientsValue, out int clientCount))
-                {
-
-                    config.NameClients = new string[clientCount];
-                    for (int i = 0; i < clientCount; i++)
-                    {
-                        config.NameClients[i] = $"{i + 1}"; // инициализируем пустыми строками
-                    }
-                }
-                else
-                {
-                    // Если это массив, получаем его напрямую
-                    config.NameClients = configuration.GetSection("nameClients").Get<string[]>();
-                }
+                var config = configuration.Get<ServerConfig>() ?? new ServerConfig();               
 
                 var storage = new SQLiteDatabase(dbFilePath);
-                int testRunId = storage.AddTestRun(typeTest, DateTime.Now, config.LocalTest,config.ProtocolType);
+                int testRunId = storage.AddTestRun(typeTest, DateTime.Now, false, typeTest);
 
-                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress(config.LocalTest)), config);
+                ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress(false)), config);
                 ShowConfig(config);
 
                 AddConfigToStorage(testRunId, config, storage);
@@ -102,7 +86,7 @@ namespace AntColonyServer
             storage.AddTestParameter(testRunId, "CountSubjects", string.Format($"{serverConfig.CountSubjects}"));
             storage.AddTestParameter(testRunId, "maxIteration", string.Format($"{serverConfig.maxIteration}"));
             storage.AddTestParameter(testRunId, "MaxAnts", string.Format($"{serverConfig.MaxAnts}"));
-            storage.AddTestParameter(testRunId, "NumClients", string.Format($"{serverConfig.NameClients.Length}"));
+            storage.AddTestParameter(testRunId, "NumClients", string.Format($"{serverConfig.NumClients}"));
 
 
         }
@@ -110,7 +94,7 @@ namespace AntColonyServer
         static void ShowConfig(ServerConfig serverConfig)
         {
             Console.WriteLine("{0,30}", "-----Конфигурация(config.json)-----");
-            Console.WriteLine("{0,-30} {1}", "Количество компьютеров:", string.Join(", ", serverConfig.NameClients));
+            Console.WriteLine("{0,-30} {1}", "Количество компьютеров:", string.Join(", ", serverConfig.NumClients));
             Console.WriteLine("{0,-30} {1}", "Максимум муравьев:", serverConfig.MaxAnts);
             Console.WriteLine("{0,-30} {1}", "Максимум итераций:", serverConfig.maxIteration);
             Console.WriteLine("{0,-30} {1}", "Alpha:", serverConfig.Alpha);
