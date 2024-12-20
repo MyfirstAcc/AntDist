@@ -110,19 +110,14 @@ namespace AntColonyServer
         static void ShowConfig(ServerConfig serverConfig)
         {
             Console.WriteLine("{0,30}", "-----Конфигурация(config.json)-----");
-            Console.WriteLine("{0,-30} {1}", "Запуск локально:", serverConfig.LocalTest);
-            Console.WriteLine("{0,-30} {1}", "Имена компьютеров:", string.Join(", ", serverConfig.NameClients));
+            Console.WriteLine("{0,-30} {1}", "Количество компьютеров:", string.Join(", ", serverConfig.NameClients));
             Console.WriteLine("{0,-30} {1}", "Максимум муравьев:", serverConfig.MaxAnts);
-            Console.WriteLine("{0,-30} {1}", "Username:", serverConfig.Username);
-            Console.WriteLine("{0,-30} {1}", "Password:", serverConfig.Password);
             Console.WriteLine("{0,-30} {1}", "Максимум итераций:", serverConfig.maxIteration);
             Console.WriteLine("{0,-30} {1}", "Alpha:", serverConfig.Alpha);
             Console.WriteLine("{0,-30} {1}", "Beta:", serverConfig.Beta);
             Console.WriteLine("{0,-30} {1}", "Q:", serverConfig.Q);
             Console.WriteLine("{0,-30} {1}", "RHO:", serverConfig.RHO);
             Console.WriteLine("{0,-30} {1}", "Количество предметов:", serverConfig.CountSubjects);
-            Console.WriteLine("{0,-30} {1}", "Путь к exe на удаленном хосте:", serverConfig.PathToEXE);
-            Console.WriteLine("{0,-30} {1}", "Имя файла:", serverConfig.NameFile);
             Console.WriteLine($"{new string('-', 32)}");
         }
 

@@ -26,15 +26,15 @@ namespace AntColonyServer
         private int bestValue;
         private readonly int maxIteration;       // Количество итераций
         private double[] pheromone;             // «привлекательность» каждого элемента или пути для муравьев
-
-        private HttpListener listener;
         private ConcurrentDictionary<int, WebSocket> clients;
 
         private int inPort;
         private IPAddress ipAddress;
         private ServerConfig serverConfig;
-        private List<Pipeline> pipeline;
-        private List<Runspace> runSpace;
+        private TcpListener tcpClientListener;
+        private TcpClient tcpClient;
+        private int clientCounter;
+        NetworkStream stream;
 
 
         public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig)
@@ -51,10 +51,8 @@ namespace AntColonyServer
             maxIteration = serverConfig.maxIteration;
             inPort = serverConfig.InPort;
             pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
-            pipeline = new List<Pipeline>(this.numClients);
-            runSpace = new List<Runspace>(this.numClients);
-            listener = new HttpListener();
             clients = new ConcurrentDictionary<int, WebSocket>();
+            clientCounter = -1;
 
         }
         /// <summary>
@@ -102,16 +100,16 @@ namespace AntColonyServer
             return sum;
         }
 
+
         public async Task<(List<int> bestItems, int bestValue, TimeSpan methodRunTimer, TimeSpan totalTime)> StartServer()
         {
 
             var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);
             var nAnts = NumberOfAntsPerClient(serverConfig.MaxAnts, numClients);
-            InitializeWebSockets();
+           
 
             var stopwatch = Stopwatch.StartNew();
-            ChooseAndRunClients();
-            await AcceptClients();
+            await InitListener(inPort);
             stopwatch.Stop();
 
             TimeSpan clientStartTimer = stopwatch.Elapsed;
@@ -180,182 +178,111 @@ namespace AntColonyServer
 
         }
 
-        private void InitializeWebSockets()
+
+        private async Task InitListener(int port)
         {
-            var erorrFlag = true;
-            while (erorrFlag)
+            bool errorFlag = true;
+
+
+            while (errorFlag)
             {
                 try
                 {
-                    listener = new HttpListener();
-                    listener.Prefixes.Add($"http://{ipAddress}:{inPort}/");
-                    listener.Start();
-                    erorrFlag = false;
+                    tcpClientListener = new TcpListener(ipAddress, port);
+                    tcpClientListener.Start();
+                    errorFlag = false;
+                    Console.WriteLine(ipAddress.ToString()+port);
+
                 }
                 catch (SocketException ex)
                 {
                     inPort++;
-                    erorrFlag = true;
+                    errorFlag = true;
                     continue;
                 }
-                
             }
-        }
 
-        private void ChooseAndRunClients()
-        {
-            if (serverConfig.UploadFile == true)
-            {
-                for (int i = 0; i < numClients; i++)
-                {
-
-                    DeployRemoteApp(serverConfig.NameClients[i], Path.Combine(serverConfig.PathToEXE.ToString(),
-                    serverConfig.NameFile), Path.Combine(Directory.GetCurrentDirectory(),
-                        serverConfig.NameFile), i, serverConfig.Username, serverConfig.Password);
-
-                }
-            }
 
             for (int i = 0; i < numClients; i++)
             {
-                if (serverConfig.LocalTest == true)
-                {
-                    StartClientProcess(i);
-                }
-                else
-                {
-                    ExecuteRemoteApp(serverConfig.NameClients[i], Path.Combine(serverConfig.PathToEXE,
-                        serverConfig.NameFile), i, serverConfig.Username, serverConfig.Password);
-                }
+                Console.WriteLine("---> Waiting for connection...");
+                tcpClient = await tcpClientListener.AcceptTcpClientAsync();
+
+                // Обрабатываем соединение в новом потоке
+                _ = HandleClientAsync(tcpClient);
             }
+        }
+
+        private async Task HandleClientAsync(TcpClient tcpClient)
+        {
+            int clientId = Interlocked.Increment(ref clientCounter);
+            Console.WriteLine($"---> Client {clientId} connected");
+
+            stream = tcpClient.GetStream();
+            WebSocket webSocket = await UpgradeToWebSocketAsync(stream);
+            if (webSocket == null)
+            {
+                Console.WriteLine($"---> Client {clientId} did not complete WebSocket handshake");
+                tcpClient.Close();
+                return;
+            }
+
+            clients[clientId] = webSocket;
+
+        }
+
+
+
+        private async Task<WebSocket> UpgradeToWebSocketAsync(NetworkStream stream)
+        {
+            byte[] buffer = new byte[1024];
+            int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+            string request = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+
+            if (!request.Contains("Upgrade: websocket"))
+            {
+                return null;
+            }
+
+            string response = GenerateWebSocketHandshakeResponse(request);
+            byte[] responseBytes = Encoding.UTF8.GetBytes(response);
+            await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
+
+            return WebSocket.CreateFromStream(stream, isServer: true, subProtocol: null, keepAliveInterval: TimeSpan.FromMinutes(2));
         }
 
         /// <summary>
-        /// Метод для получения подтверждения клиентов
+        /// 
         /// </summary>
-        private async Task AcceptClients()
-        {
-            for (int i = 0; i < numClients; i++)
-            {
-                HttpListenerContext context = await listener.GetContextAsync();
+        /// <param name="request"></param>
+        /// <returns></returns>
 
-                if (context.Request.IsWebSocketRequest)
+        private string GenerateWebSocketHandshakeResponse(string request)
+        {
+            string key = ExtractWebSocketKey(request);
+            string acceptKey = Convert.ToBase64String(
+                System.Security.Cryptography.SHA1.Create()
+                .ComputeHash(Encoding.UTF8.GetBytes(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+            );
+
+            return "HTTP/1.1 101 Switching Protocols\r\n" +
+                   "Upgrade: websocket\r\n" +
+                   "Connection: Upgrade\r\n" +
+                   $"Sec-WebSocket-Accept: {acceptKey}\r\n\r\n";
+        }
+
+        private string ExtractWebSocketKey(string request)
+        {
+            foreach (var line in request.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (line.StartsWith("Sec-WebSocket-Key:"))
                 {
-                    HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
-                    clients[i] = wsContext.WebSocket;
-                    var listeners = this.listener.Prefixes;
-                    int port = 0;
-                    string ip = "";
-                    foreach (var lestiner in listeners)
-                    {
-                        Uri uri = new Uri(lestiner);
-                        ip = uri.Host;
-                        port = uri.Port;
-
-                    }
-                    Console.WriteLine($"Клиент {i} подключился к {ip}:{port}");
-
+                    return line.Split(':')[1].Trim();
                 }
-                else
-                {
-                    context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-                    context.Response.Close();
-                }
-
             }
-            Console.WriteLine($"{new string('-', 32)}");
+            return string.Empty;
         }
 
-        private void DeployRemoteApp(string remoteComputer, string remotePath, string localFilePath, int i, string username, string password)
-        {
-
-            ///
-            string copyFileCommand = $@"
-                    $session = New-PSSession -ComputerName '{remoteComputer}' -Credential (New-Object System.Management.Automation.PSCredential('{username}', (ConvertTo-SecureString '{password}' -AsPlainText -Force)));
-                    Copy-Item -Path '{localFilePath}' -Destination '{remotePath}' -ToSession $session;
-              ";
-
-
-            // Выполнение команды на локальной PowerShell-сессии - да, это очень странно, но работает xD
-            var psLocal = PowerShell.Create();
-
-            psLocal.AddScript(copyFileCommand);
-            var resultsps = psLocal.Invoke();
-
-            if (psLocal.Streams.Error.Count > 0)
-            {
-                Console.WriteLine("Ошибка при копировании файла:");
-                foreach (var error in psLocal.Streams.Error)
-                {
-                    Console.WriteLine(error.ToString());
-                }
-                return;
-            }
-            else
-            {
-                Console.WriteLine($"Копирование файла на {serverConfig.NameClients[i]} завершено успешно.");
-            }
-        }
-
-        private void ExecuteRemoteApp(string remoteComputer, string remotePath, int idClient, string username, string password)
-        {
-            SecureString securePassword = new SecureString();
-            foreach (char c in password)
-                securePassword.AppendChar(c);
-            securePassword.MakeReadOnly();
-
-            // Формируем команду
-            string executeCommand = $"Start-Process -FilePath {remotePath} -ArgumentList \"{ipAddress} {getPort()}\"";
-            string script = $"{executeCommand}";
-
-            // Создаем объект PSCredential с именем пользователя и паролем
-            var credential = new PSCredential(username, securePassword);
-
-            // Настраиваем подключение с использованием WSManConnectionInfo
-            var connectionInfo = new WSManConnectionInfo(new Uri($"http://{remoteComputer}:5985/wsman"), "http://schemas.microsoft.com/powershell/Microsoft.PowerShell", credential)
-            {
-                AuthenticationMechanism = AuthenticationMechanism.Negotiate
-            };
-
-            // Открываем удалённое подключение и выполняем команды
-            runSpace.Add(RunspaceFactory.CreateRunspace(connectionInfo));
-
-            runSpace[idClient].Open();
-            pipeline.Add(runSpace[idClient].CreatePipeline());
-
-
-            pipeline[idClient].Commands.AddScript(script);
-            var results = pipeline[idClient].Invoke();
-
-            foreach (var item in results)
-            {
-                Console.WriteLine(item);
-            }
-
-        }
-
-        private int getPort()
-        {
-            var listeners = this.listener.Prefixes;
-            int port = 0;
-            foreach (var lestiner in listeners)
-            {
-                Uri uri = new Uri(lestiner);
-                port = uri.Port;
-
-            }
-            return port;
-        }
-
-        private void StartClientProcess(int clientId)
-        {
-            Process clientProcess = new Process();
-            clientProcess.StartInfo.FileName = serverConfig.NameFile;
-
-            clientProcess.StartInfo.Arguments = $"{ipAddress} {getPort()}";
-            clientProcess.StartInfo.WorkingDirectory = Directory.GetCurrentDirectory();
-            clientProcess.Start();
-        }
 
         /// <summary>
         /// 
@@ -414,27 +341,32 @@ namespace AntColonyServer
         }
 
 
-        private async Task SendData(int clientIndex, string message)
+        public async Task SendData(int clientIndex, string message)
         {
-            if (clients[clientIndex].State == WebSocketState.Open)
+            if (clients.TryGetValue(clientIndex, out WebSocket webSocket) && webSocket.State == WebSocketState.Open)
             {
                 byte[] responseBuffer = Encoding.UTF8.GetBytes(message);
-                await clients[clientIndex].SendAsync(new ArraySegment<byte>(responseBuffer), WebSocketMessageType.Text, true, CancellationToken.None);
+                await webSocket.SendAsync(new ArraySegment<byte>(responseBuffer), WebSocketMessageType.Text, true, CancellationToken.None);
             }
         }
 
         public async Task<string> ReceiveData(int clientIndex, int countBuffer)
         {
-            byte[] buffer = new byte[countBuffer];
-
-            if (clients[clientIndex].State == WebSocketState.Open)
+            try
             {
-                var result = await clients[clientIndex].ReceiveAsync(new ArraySegment<byte>(buffer),
-                    CancellationToken.None);
-                if (result.MessageType == WebSocketMessageType.Text)
+                if (clients.TryGetValue(clientIndex, out WebSocket webSocket) && webSocket.State == WebSocketState.Open)
                 {
-                    return Encoding.UTF8.GetString(buffer, 0, result.Count);
+                    var buffer = new byte[countBuffer];
+                    var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+
+                    if (result.MessageType == WebSocketMessageType.Text)
+                    {
+                        return Encoding.UTF8.GetString(buffer, 0, result.Count);
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
 
             }
             return string.Empty;
@@ -459,55 +391,16 @@ namespace AntColonyServer
             return nAnts;
         }
 
-        public async void CloseServer()
+        public void CloseServer()
         {
-            // Закрытие всех pipeline
-            if (pipeline != null)
+            // Удаляем клиента при завершении соединения
+            foreach (var item in clients)
             {
-                foreach (var pipe in pipeline)
-                {
-                    if (pipe != null)
-                    {
-                        pipe.Dispose();
-                    }
-                }
-                pipeline.Clear();
-                pipeline = null;
-            }
-
-            // Закрытие всех runspace
-            if (runSpace != null)
-            {
-                foreach (var space in runSpace)
-                {
-                    if (space != null)
-                    {
-                        space.Close();
-                        space.Dispose();
-                    }
-                }
-                runSpace.Clear();
-                runSpace = null;
-            }
-
-            //if (listener != null)
-            //{
-            //    listener.Stop();
-            //    listener.Close();
-            //}
-
-            //if (clients != null)
-            //{
-            //    foreach (var socket in clients)
-            //    {
-            //        if (socket.State == WebSocketState.Open)
-            //        {
-            //            await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None);
-            //            await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None);
-            //        }
-            //    }
-            //}
+                clients.TryRemove(item.Key, out _);
+                Console.WriteLine($"---> Client {item.Key} disconnected");
+            }           
         }
-
     }
+
+
 }
