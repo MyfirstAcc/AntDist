@@ -50,8 +50,8 @@ namespace AntColonyServer
                 int testRunId = storage.AddTestRun(typeTest, DateTime.Now, false, typeTest);
 
                 ServerAnts server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress(false)), config);
-                ShowConfig(config);
 
+                ShowConfig(config);
                 AddConfigToStorage(testRunId, config, storage);
 
                 try
@@ -84,7 +84,7 @@ namespace AntColonyServer
             storage.AddTestParameter(testRunId, "Q", string.Format($"{serverConfig.Q}"));
             storage.AddTestParameter(testRunId, "RHO", string.Format($"{serverConfig.RHO}"));
             storage.AddTestParameter(testRunId, "CountSubjects", string.Format($"{serverConfig.CountSubjects}"));
-            storage.AddTestParameter(testRunId, "maxIteration", string.Format($"{serverConfig.maxIteration}"));
+            storage.AddTestParameter(testRunId, "maxIteration", string.Format($"{serverConfig.MaxIteration}"));
             storage.AddTestParameter(testRunId, "MaxAnts", string.Format($"{serverConfig.MaxAnts}"));
             storage.AddTestParameter(testRunId, "NumClients", string.Format($"{serverConfig.NumClients}"));
 
@@ -96,7 +96,7 @@ namespace AntColonyServer
             Console.WriteLine("{0,30}", "-----Конфигурация(config.json)-----");
             Console.WriteLine("{0,-30} {1}", "Количество компьютеров:", string.Join(", ", serverConfig.NumClients));
             Console.WriteLine("{0,-30} {1}", "Максимум муравьев:", serverConfig.MaxAnts);
-            Console.WriteLine("{0,-30} {1}", "Максимум итераций:", serverConfig.maxIteration);
+            Console.WriteLine("{0,-30} {1}", "Максимум итераций:", serverConfig.MaxIteration);
             Console.WriteLine("{0,-30} {1}", "Alpha:", serverConfig.Alpha);
             Console.WriteLine("{0,-30} {1}", "Beta:", serverConfig.Beta);
             Console.WriteLine("{0,-30} {1}", "Q:", serverConfig.Q);

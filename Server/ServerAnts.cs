@@ -12,47 +12,63 @@ namespace AntColonyServer
 {
     /// <summary>
     /// Алгоритм муравьиной оптимизации (Ant Colony Optimization)
-    /// Разбиение задачи для нескольких клиентов 
-    /// Получение двунаправленного соединения, такой же эффект у TCPClient
+    /// Разбиение задачи для нескольких клиентов
     /// </summary>
     public class ServerAnts
     {
-        private readonly int numClients;         // Количество клиентов
-        private readonly double alpha;           // Влияние феромонов
-        private readonly double beta;            // Влияние эвристической информации
-        private readonly double RHO;             // Коэффициент испарения феромонов
-        private readonly int Q;                  // Константа для обновления феромонов
-        private readonly int countSubjects;      // Количество предметов
-        private int bestValue;
-        private readonly int maxIteration;       // Количество итераций
-        private double[] pheromone;             // «привлекательность» каждого элемента или пути для муравьев
-        private ConcurrentDictionary<int, WebSocket> clients; 
-
-        private int inPort;
-        private IPAddress ipAddress;
-        private ServerConfig serverConfig;
-        private TcpListener tcpClientListener;
-        private TcpClient tcpClient;
-        private int clientCounter;
-        NetworkStream stream;
+        private readonly int _numClients;                       // Количество клиентов
+        private readonly double _alpha;                         // Влияние феромонов
+        private readonly double _beta;                          // Влияние эвристической информации
+        private readonly double _RHO;                           // Коэффициент испарения феромонов
+        private readonly int Q;                                 // Константа для обновления феромонов
+        private readonly int _countSubjects;                    // Количество предметов
+        private int _bestValue;
+        private readonly int _maxIteration;                     // Количество итераций
+        private double[] _pheromone;                            // «привлекательность» каждого элемента или пути для муравьев
+        private ConcurrentDictionary<int, WebSocket> _clients;  // Словарь для клиентов сервера 
+         
+        private int _inPort;                                    // Порт для подключения 
+        private readonly IPAddress _ipAddress;                  // Адрес сервера
+        private readonly ServerConfig _serverConfig;            // Конфигурация алгоритма и сервера 
+        private TcpListener _tcpClientListener;                 // Слушатель для порта 
+        private TcpClient _tcpClient;                           // Сокет клиента 
+        private int _clientCounter;                             // количество действительных клиентов
+        NetworkStream _stream;                                  // Объект для работы с потоком сокета 
 
 
         public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig)
         {
-            ipAddress = iPAddress;
-            this.serverConfig = serverConfig;
-            numClients = serverConfig.NumClients;
-            alpha = serverConfig.Alpha;
-            beta = serverConfig.Beta;
-            RHO = serverConfig.RHO;
-            Q = serverConfig.Q;
-            countSubjects = serverConfig.CountSubjects;
-            bestValue = 0;
-            maxIteration = serverConfig.maxIteration;
-            inPort = serverConfig.InPort;
-            pheromone = Enumerable.Repeat(1.0, countSubjects).ToArray();
-            clients = new ConcurrentDictionary<int, WebSocket>();
-            clientCounter = -1;
+            if (serverConfig is not null)
+            {
+
+                if (iPAddress is not null)
+                {
+                    _ipAddress = iPAddress;
+                }
+                else
+                {
+                    throw new Exception("Необходимо указать IP-адрес!");
+                }
+                this._serverConfig = serverConfig;
+                _numClients = serverConfig.NumClients;
+                _alpha = serverConfig.Alpha;
+                _beta = serverConfig.Beta;
+                _RHO = serverConfig.RHO;
+                Q = serverConfig.Q;
+                _countSubjects = serverConfig.CountSubjects;
+                _bestValue = 0;
+                _maxIteration = serverConfig.MaxIteration;
+                _inPort = serverConfig.InPort;
+                _pheromone = Enumerable
+                    .Repeat(1.0, _countSubjects)
+                    .ToArray();
+                _clients = new ConcurrentDictionary<int, WebSocket>();
+                _clientCounter = -1;
+            }
+            else
+            {
+                throw new Exception("Проблема с загрузкой конфига!");
+            }
 
         }
         /// <summary>
@@ -88,7 +104,6 @@ namespace AntColonyServer
             return (values, weights, weightLimit);
         }
 
-        /// Метод для суммирования цифр числа
         private int SumOfDigits(long number)
         {
             int sum = 0;
@@ -100,26 +115,30 @@ namespace AntColonyServer
             return sum;
         }
 
+        /// <summary>
+        /// Метод для запуска сервера и алгоритма ACO
+        /// </summary>
+        /// <returns> Список предметов, лучшее значение, время запуска клиентов, время работы алгоритма</returns>
         public async Task<(List<int> bestItems, int bestValue, TimeSpan methodRunTimer, TimeSpan totalTime)> StartServer()
         {
 
-            var (values, weights, weightLimit) = GenerateModelParameters(countSubjects);
-            var nAnts = NumberOfAntsPerClient(serverConfig.MaxAnts, numClients);
+            var (values, weights, weightLimit) = GenerateModelParameters(_countSubjects);
+            var nAnts = NumberOfAntsPerClient(_serverConfig.MaxAnts, _numClients);
            
 
             var stopwatch = Stopwatch.StartNew();
-            await InitListener(inPort);
+            await InitListener(_inPort);
             stopwatch.Stop();
 
             TimeSpan clientStartTimer = stopwatch.Elapsed;
             Console.WriteLine($"--- Время запуска клиентских сокетов : {clientStartTimer.TotalSeconds} с.");
 
-            for (int i = 0; i < clients.Count; i++)
+            for (int i = 0; i < _clients.Count; i++)
             {
                 string message = await ReceiveData(i, 1024);
                 if (message == "READY")
                 {
-                    string initData = $"{string.Join(",", weights)};{string.Join(",", values)};{weightLimit};{alpha};{beta};{nAnts[i]}";
+                    string initData = $"{string.Join(",", weights)};{string.Join(",", values)};{weightLimit};{_alpha};{_beta};{nAnts[i]}";
                     await SendData(i, initData);
                 }
             }
@@ -128,7 +147,7 @@ namespace AntColonyServer
             List<int> bestItems = new List<int>();
             stopwatch.Reset();
             stopwatch.Start();
-            for (int i = 0; i < clients.Count; i++)
+            for (int i = 0; i < _clients.Count; i++)
             {
                 var message = await ReceiveData(i, 1024);
                 if (message != "READY")
@@ -137,7 +156,7 @@ namespace AntColonyServer
                 }
             }
 
-            for (int iter = 1; iter < maxIteration; iter++)
+            for (int iter = 1; iter < _maxIteration; iter++)
             {
 
                 var (tmpBestValue, tmpBestItems, allValues, allItems) = await OneStepAntColony();
@@ -148,21 +167,21 @@ namespace AntColonyServer
                     bestItems = tmpBestItems;
                 }
 
-                for (int i = 0; i < pheromone.Length; i++)
+                for (int i = 0; i < _pheromone.Length; i++)
                 {
-                    pheromone[i] = (1.0 - RHO) * pheromone[i];
+                    _pheromone[i] = (1.0 - _RHO) * _pheromone[i];
                 }
-                for (int k = 0; k < serverConfig.MaxAnts; k++)
+                for (int k = 0; k < _serverConfig.MaxAnts; k++)
                 {
                     double sumValues = allValues.Sum();
                     foreach (var itemIndex in allItems[k])
                     {
-                        pheromone[itemIndex] += Q / sumValues;
+                        _pheromone[itemIndex] += Q / sumValues;
                     }
                 }
             }
 
-            for (int j = 0; j < numClients; j++)
+            for (int j = 0; j < _numClients; j++)
             {
                 await SendData(j, "end");
             }
@@ -178,6 +197,11 @@ namespace AntColonyServer
         }
 
 
+        /// <summary>
+        /// Создание слушателя для порта c проверкой на занятость порта
+        /// </summary>
+        /// <param name="port">номер порта</param>
+        /// <returns></returns>
         private async Task InitListener(int port)
         {
             bool errorFlag = true;
@@ -186,39 +210,45 @@ namespace AntColonyServer
             {
                 try
                 {
-                    tcpClientListener = new TcpListener(ipAddress, port);
-                    tcpClientListener.Start();
+                    _tcpClientListener = new TcpListener(_ipAddress, port);
+                    _tcpClientListener.Start();
                     errorFlag = false;
-                    Console.WriteLine($"URL: ws://{ipAddress.ToString()}:{port}");
+                    Console.WriteLine($"URI: ws://{_ipAddress.ToString()}:{port}");
 
                 }
-                catch (SocketException ex)
+                catch (SocketException)
                 {
-                    inPort++;
+                    _inPort++;
                     errorFlag = true;
                     continue;
                 }
             }
 
-            for (int i = 0; i < numClients; i++)
+            for (int i = 0; i < _numClients; i++)
             {
-                Console.WriteLine ($"---> Waiting for connection...{i} of {numClients}");
-                tcpClient = await tcpClientListener.AcceptTcpClientAsync();
+                Console.WriteLine ($"---> Waiting for connection...{i} of {_numClients}");
+                _tcpClient = await _tcpClientListener.AcceptTcpClientAsync();
 
-                _ = HandleClientAsync(tcpClient);
+                _ = HandleClientAsync(_tcpClient);
                 
             }
             Console.Write($"");
 
         }
 
+
+        /// <summary>
+        /// Подтверждение соединение клиентов 
+        /// </summary>
+        /// <param name="tcpClient"></param>
+        /// <returns></returns>
         private async Task HandleClientAsync(TcpClient tcpClient)
         {
-            int clientId = Interlocked.Increment(ref clientCounter);
+            int clientId = Interlocked.Increment(ref _clientCounter);
             Console.WriteLine($"---> Client {clientId} connected");
 
-            stream = tcpClient.GetStream();
-            WebSocket webSocket = await UpgradeToWebSocketAsync(stream);
+            _stream = tcpClient.GetStream();
+            WebSocket webSocket = await UpgradeToWebSocketAsync(_stream);
             if (webSocket == null)
             {
                 Console.WriteLine($"---> Client {clientId} did not complete WebSocket handshake");
@@ -226,10 +256,15 @@ namespace AntColonyServer
                 return;
             }
 
-            clients[clientId] = webSocket;
+            _clients[clientId] = webSocket;
 
         }
 
+        /// <summary>
+        /// Переключение TCPClient на WebSocket
+        /// </summary>
+        /// <param name="stream"></param>
+        /// <returns>объект WebSocket для клиента</returns>
         private async Task<WebSocket> UpgradeToWebSocketAsync(NetworkStream stream)
         {
             byte[] buffer = new byte[1024];
@@ -249,11 +284,10 @@ namespace AntColonyServer
         }
 
         /// <summary>
-        /// 
+        /// Создание заголовка для подтверждения WebSocket
         /// </summary>
         /// <param name="request"></param>
         /// <returns></returns>
-
         private string GenerateWebSocketHandshakeResponse(string request)
         {
             string key = ExtractWebSocketKey(request);
@@ -288,18 +322,18 @@ namespace AntColonyServer
         private async Task<(int bestValue, List<int> bestItems, List<int> allValues, List<int[]> allItems)> OneStepAntColony()
         {
 
-            for (int i = 0; i < numClients; i++)
+            for (int i = 0; i < _numClients; i++)
             {
 
-                await SendData(i, string.Join(",", pheromone));
+                await SendData(i, string.Join(",", _pheromone));
             }
 
             List<int> bestValues = new List<int>();
-            List<List<int>> bestItemsList = new List<List<int>>(numClients);
+            List<List<int>> bestItemsList = new List<List<int>>(_numClients);
             List<int> allValues = new List<int>();
             List<int[]> allItems = new List<int[]>();
 
-            for (int i = 0; i < this.numClients; i++)
+            for (int i = 0; i < this._numClients; i++)
             {
                 string response = await ReceiveData(i, 65000);
                 var dataParts = response.Split(';');
@@ -332,26 +366,35 @@ namespace AntColonyServer
 
         private List<int[]> ParseAntSelections(string input)
         {
-            string[] antSelections = input.Split(',').Select(s => s.Trim()).ToArray();
-            List<int[]> result = antSelections.Select(antSelection => antSelection.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray()).ToList();
+            string[] antSelections = input
+                .Split(',')
+                .Select(s => s.Trim())
+                .ToArray();
+
+            List<int[]> result = antSelections
+                .Select(antSelection => antSelection
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Select(int.Parse)
+                .ToArray())
+                .ToList();
             return result;
         }
 
 
-        public async Task SendData(int clientIndex, string message)
+        private async Task SendData(int clientIndex, string message)
         {
-            if (clients.TryGetValue(clientIndex, out WebSocket webSocket) && webSocket.State == WebSocketState.Open)
+            if (_clients.TryGetValue(clientIndex, out WebSocket webSocket) && webSocket.State == WebSocketState.Open)
             {
                 byte[] responseBuffer = Encoding.UTF8.GetBytes(message);
                 await webSocket.SendAsync(new ArraySegment<byte>(responseBuffer), WebSocketMessageType.Text, true, CancellationToken.None);
             }
         }
 
-        public async Task<string> ReceiveData(int clientIndex, int countBuffer)
+        private async Task<string> ReceiveData(int clientIndex, int countBuffer)
         {
             try
             {
-                if (clients.TryGetValue(clientIndex, out WebSocket webSocket) && webSocket.State == WebSocketState.Open)
+                if (_clients.TryGetValue(clientIndex, out WebSocket webSocket) && webSocket.State == WebSocketState.Open)
                 {
                     var buffer = new byte[countBuffer];
                     var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
@@ -364,7 +407,7 @@ namespace AntColonyServer
             }
             catch (Exception ex)
             {
-
+                throw new Exception(ex.ToString());
             }
             return string.Empty;
         }
@@ -374,7 +417,9 @@ namespace AntColonyServer
             List<int> nAnts = new List<int>();
             int baseNumAnt = maxAnts / numSock;
 
-            nAnts = Enumerable.Repeat(baseNumAnt, numSock).ToList();
+            nAnts = Enumerable
+                .Repeat(baseNumAnt, numSock)
+                .ToList();
 
             int addAnt = maxAnts % numSock;
             for (int i = 0; i < addAnt; i++)
@@ -391,11 +436,12 @@ namespace AntColonyServer
         public void CloseServer()
         {
             // Удаляем клиента при завершении соединения
-            foreach (var item in clients)
+            foreach (var item in _clients)
             {
-                clients.TryRemove(item.Key, out _);
+                _clients.TryRemove(item.Key, out _);
                 Console.WriteLine($"---> Client {item.Key} disconnected");
-            }           
+            }
+            Console.WriteLine("Server closed");
         }
     }
 
