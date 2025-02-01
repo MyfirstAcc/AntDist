@@ -8,16 +8,14 @@ document.getElementById('connection-form').addEventListener('submit', async (eve
     const messagesElement = document.getElementById('messages');
     const logMessage = (message) => {
         messagesElement.textContent += message + '\n';
-    };
-
+    };    
     try {
         const webSocket = new WebSocket(serverUri);
         let bestValue = 0;
         let bestItems = [];
 
-
         webSocket.onopen = () => {
-            logMessage(`Connected to server: ${serverUri}`);
+            logMessage(`Подключен к серверу: ${serverUri}`);
             webSocket.send("READY");
         };
 
@@ -26,15 +24,17 @@ document.getElementById('connection-form').addEventListener('submit', async (eve
            
             if (message === "end") {
                 webSocket.close();
-                logMessage(`Received: ${message}`);
-                logMessage("Connection closed by server.");
-                logMessage(bestValue);
+                const line = '-'.repeat(60);
+                logMessage(line);
+                logMessage(`Лучшее значение: ${bestValue}`);
+                logMessage(`Лучший набор: ${bestItems}`);
+                logMessage(line);
+                logMessage("Соединение закрыто сервером.");
                 return;
             }
 
             if (!client.initData) {
                 client.splitInitData(message);
-                logMessage(`Received: ${message}`);
                 webSocket.send("READY");
                 return;
             }
@@ -61,11 +61,11 @@ document.getElementById('connection-form').addEventListener('submit', async (eve
         };
 
         webSocket.onclose = () => {
-            logMessage("WebSocket connection closed.");
+            logMessage("WebSocket закрыл соединение.");
         };
 
         webSocket.onerror = (error) => {
-            logMessage(`Error: ${error.message}`);
+            logMessage(`Ошибка WS: ${error.message}`);
         };
 
         const client = {
@@ -127,6 +127,6 @@ document.getElementById('connection-form').addEventListener('submit', async (eve
             },
         };
     } catch (error) {
-        console.error(`Failed to connect: ${error.message}`);
+        console.error(`Ошибка подключения: ${error.message}`);
     }
 });
