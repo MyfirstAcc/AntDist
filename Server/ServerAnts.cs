@@ -19,7 +19,6 @@ namespace AntColonyServer
         private readonly double _RHO;                           // Коэффициент испарения феромонов
         private readonly int Q;                                 // Константа для обновления феромонов
         private readonly int _countSubjects;                    // Количество предметов
-        private int _bestValue;
         private readonly int _maxIteration;                     // Количество итераций
         private double[] _pheromone;                            // «привлекательность» каждого элемента или пути для муравьев
         private ConcurrentDictionary<int, WebSocket> _clients;  // Словарь для клиентов сервера 
@@ -46,14 +45,13 @@ namespace AntColonyServer
                 {
                     throw new Exception("Необходимо указать IP-адрес!");
                 }
-                this._serverConfig = serverConfig;
+                _serverConfig = serverConfig;
                 _numClients = serverConfig.NumClients;
                 _alpha = serverConfig.Alpha;
                 _beta = serverConfig.Beta;
                 _RHO = serverConfig.RHO;
                 Q = serverConfig.Q;
-                _countSubjects = serverConfig.CountSubjects;
-                _bestValue = 0;
+                _countSubjects = serverConfig.CountSubjects; 
                 _maxIteration = serverConfig.MaxIteration;
                 _inPort = serverConfig.InPort;
                 _pheromone = Enumerable
@@ -467,6 +465,4 @@ namespace AntColonyServer
             Console.WriteLine("Server closed");
         }
     }
-
-
 }

@@ -2,6 +2,10 @@
 
 namespace AntColonyServer
 {
+    /// <summary>
+    /// Класс для работы с БД SQLite
+    /// Сохраняет результаты прогона алгоритма 
+    /// </summary>
     internal class SQLiteDatabase
     {
         private readonly string _connectionString;
@@ -13,13 +17,14 @@ namespace AntColonyServer
             InitializeDatabase();
         }
 
-        // Метод для инициализации базы данных (создание файла и таблицы)
+        // Метод для инициализации базы данных.
+        // Создание файла и таблиц, если БД нет.
+        // Если есть, то пропускается
         private void InitializeDatabase()
         {
             if (!File.Exists("testAnts.db"))
             {
                 {
-
                     using (var connection = new SQLiteConnection(_connectionString))
                     {
                         connection.Open();
@@ -63,7 +68,6 @@ namespace AntColonyServer
                 }
             }
         }
-
 
         public int AddTestRun(string testType, DateTime startTime, bool local, string typeProtocol)
         {
