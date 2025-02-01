@@ -1,11 +1,8 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Management.Automation.Runspaces;
-using System.Management.Automation;
+using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
-using System.Net;
-using System.Security;
 using System.Text;
 
 namespace AntColonyServer
@@ -198,7 +195,7 @@ namespace AntColonyServer
 
 
         /// <summary>
-        /// Создание слушателя для порта c проверкой на занятость порта
+        /// Создание слушателя для порта c проверкой на занятость порта. Перебор портов до свободного
         /// </summary>
         /// <param name="port">номер порта</param>
         /// <returns></returns>
@@ -287,13 +284,13 @@ namespace AntColonyServer
         /// Создание заголовка для подтверждения WebSocket
         /// </summary>
         /// <param name="request"></param>
-        /// <returns></returns>
+        /// <returns>ответ сервера с полем Accept WS</returns>
         private string GenerateWebSocketHandshakeResponse(string request)
         {
             string key = ExtractWebSocketKey(request);
             string acceptKey = Convert.ToBase64String(
                 System.Security.Cryptography.SHA1.Create()
-                .ComputeHash(Encoding.UTF8.GetBytes(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+                .ComputeHash(Encoding.UTF8.GetBytes(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")) // спецификация RFC 6455
             );
 
             return "HTTP/1.1 101 Switching Protocols\r\n" +
@@ -302,6 +299,12 @@ namespace AntColonyServer
                    $"Sec-WebSocket-Accept: {acceptKey}\r\n\r\n";
         }
 
+
+        /// <summary>
+        /// Извлечение значение заголовка Sec-WebSocket-Key из HTTP-запроса клиента.
+        /// </summary>
+        /// <param name="request"></param>
+        /// <returns>ключ клиента</returns>
         private string ExtractWebSocketKey(string request)
         {
             foreach (var line in request.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries))
@@ -316,7 +319,9 @@ namespace AntColonyServer
 
 
         /// <summary>
-        /// 
+        /// Метод выполнения одной итерации распределённого алгоритма муравьиной колонии, 
+        /// где клиенты выполняют часть вычислений параллельно, 
+        /// а сервер агрегирует их результаты для дальнейшей оптимизации.
         /// </summary>
         /// <returns></returns>
         private async Task<(int bestValue, List<int> bestItems, List<int> allValues, List<int[]> allItems)> OneStepAntColony()
@@ -333,7 +338,7 @@ namespace AntColonyServer
             List<int> allValues = new List<int>();
             List<int[]> allItems = new List<int[]>();
 
-            for (int i = 0; i < this._numClients; i++)
+            for (int i = 0; i < _numClients; i++)
             {
                 string response = await ReceiveData(i, 65000);
                 var dataParts = response.Split(';');
@@ -380,7 +385,12 @@ namespace AntColonyServer
             return result;
         }
 
-
+        /// <summary>
+        /// Метод для пересылки сообщений клиенту 
+        /// </summary>
+        /// <param name="clientIndex">id клиента</param>
+        /// <param name="message"> сообщение</param>
+        /// <returns>асинхронный метод без возвращаемого значения</returns>
         private async Task SendData(int clientIndex, string message)
         {
             if (_clients.TryGetValue(clientIndex, out WebSocket webSocket) && webSocket.State == WebSocketState.Open)
@@ -390,6 +400,13 @@ namespace AntColonyServer
             }
         }
 
+        /// <summary>
+        /// Метод для поучения сообщения от клиента
+        /// </summary>
+        /// <param name="clientIndex">id клиента</param>
+        /// <param name="countBuffer">буфер для сообщения</param>
+        /// <returns>асинхронный возврат сообщения</returns>
+        /// <exception cref="Exception"></exception>
         private async Task<string> ReceiveData(int clientIndex, int countBuffer)
         {
             try
@@ -412,6 +429,12 @@ namespace AntColonyServer
             return string.Empty;
         }
 
+        /// <summary>
+        /// Метод для распределения муравьев для клиентов
+        /// </summary>
+        /// <param name="maxAnts">максимальное количество муравьев</param>
+        /// <param name="numSock">количество клиентов</param>
+        /// <returns>количество муравьев для одного клиента</returns>
         private List<int> NumberOfAntsPerClient(int maxAnts, int numSock)
         {
             List<int> nAnts = new List<int>();
