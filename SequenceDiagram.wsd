@@ -1,0 +1,63 @@
+@startuml
+autonumber
+skin rose
+actor User
+
+participant Server as "Сервер"
+participant Client1 as "Client[N]"
+participant BD as "База данных"
+
+User -> Server: Запуск сервера
+activate Server
+Server -> Server: Чтение конфигурации
+Server -> Server: Создание TCP сокетов
+Server -> BD : Добавление нового теста
+activate BD
+BD -> Server : Успешное сохранение
+deactivate BD
+
+Server -> BD : Сохранение конфигурации прогона
+activate BD
+BD -> Server : Успешное сохранение
+deactivate BD
+
+loop для каждого клиента
+
+  Client1 -> Server : Подключение через TCP
+  activate Client1
+  Server -> Server : Установление TCP соединения (NetworkStream)
+  Client1 -> Server : Отправка HTTP-запроса Upgrade: websocket
+  alt Если запрос содержит "Upgrade: websocket"
+    Server -> Server : Генерация ответа на WebSocket Handshake
+    Server -> Client1 : Отправка HTTP-ответа (101 Switching Protocols)
+    Client1 -> Server : Установка WebSocket соединения
+    Server -> Server : Переключение на WebSocket
+    note right: Server использует WebSocket API
+else Если заголовков нет
+    Server -> Client1 : Отказ в переходе
+    deactivate Client1
+end
+end
+
+loop итерация алгоритма (для каждого клиента)
+  Server ->> Client1: Отправка начальных данных
+  activate Client1
+    Client1 -->> Server: Потверждение принятых данных
+    Server ->> Client1: Отправка феромона
+    Client1 -> Server: Потверждение принятых данных
+    Client1 -> Client1: Выполнение поиска решений
+    Client1 -->> Server: Возврат результа клиента
+    Server -> Server: Обновление глобального результа
+    Server -> Server: Глобальное обновление феромона
+    Server -> Client1: Отправка феромона
+  deactivate Client1
+end
+
+Server -> BD : Сохранение результов
+activate BD
+BD -> Server : Успешное сохранение
+deactivate BD
+
+Server --> User: Отображение итогов
+deactivate Server
+@enduml
