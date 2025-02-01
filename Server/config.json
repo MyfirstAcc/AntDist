@@ -2,7 +2,7 @@
   "numClients": 2,
   "maxAnts": 20,
   "inPort": 8081,
-  "maxIteration": 100,
+  "maxIteration": 300,
   "alpha": 1.0,
   "beta": 5.0,
   "Q": 100,

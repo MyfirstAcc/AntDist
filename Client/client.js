@@ -12,6 +12,9 @@ document.getElementById('connection-form').addEventListener('submit', async (eve
 
     try {
         const webSocket = new WebSocket(serverUri);
+        let bestValue = 0;
+        let bestItems = [];
+
 
         webSocket.onopen = () => {
             logMessage(`Connected to server: ${serverUri}`);
@@ -25,6 +28,7 @@ document.getElementById('connection-form').addEventListener('submit', async (eve
                 webSocket.close();
                 logMessage(`Received: ${message}`);
                 logMessage("Connection closed by server.");
+                logMessage(bestValue);
                 return;
             }
 
@@ -36,8 +40,7 @@ document.getElementById('connection-form').addEventListener('submit', async (eve
             }
 
             client.pheromone = message.split(',').map(Number);
-            let bestValue = 0;
-            let bestItems = [];
+           
             const allValues = [];
             const allItems = [];
 
@@ -54,7 +57,7 @@ document.getElementById('connection-form').addEventListener('submit', async (eve
 
             const allItemsStr = allItems.map((items) => items.join(' ')).join(',');
             const toSend = `${bestValue};${bestItems.join(' ')};${allValues.join(' ')};${allItemsStr}`;
-            webSocket.send(toSend);
+            webSocket.send(toSend);           
         };
 
         webSocket.onclose = () => {
