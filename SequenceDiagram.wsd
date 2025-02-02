@@ -6,11 +6,16 @@ actor User
 participant Server as "Сервер"
 participant Client1 as "Client[N]"
 participant BD as "База данных"
+participant HTTPSer as "HTTP-server"
 
-User -> Server: Запуск сервера
+User -> Server: Запуск проекта
 activate Server
 Server -> Server: Чтение конфигурации
 Server -> Server: Создание TCP сокетов
+Server -> Server: Создание HTTP-сервера
+Server ->> HTTPSer: Запуск HTTP-сервера
+activate HTTPSer
+HTTPSer -> HTTPSer: Прослушка HTTP-запросов
 Server -> BD : Добавление нового теста
 activate BD
 BD -> Server : Успешное сохранение
@@ -20,6 +25,11 @@ Server -> BD : Сохранение конфигурации прогона
 activate BD
 BD -> Server : Успешное сохранение
 deactivate BD
+
+Client1 -> HTTPSer: Get-запрос
+activate Client1
+HTTPSer -> Client1: GET 200 OK
+deactivate Client1
 
 loop для каждого клиента
 
@@ -60,4 +70,5 @@ deactivate BD
 
 Server --> User: Отображение итогов
 deactivate Server
+deactivate HTTPSer
 @enduml
