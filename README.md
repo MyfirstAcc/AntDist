@@ -7,7 +7,7 @@
 
 Совместно с WebSocket сервером запускается HTTP сервер. Клиентская часть в папке - *wwwroot*.  
 
-<img src="Asserts/SequenceDiagram.png" width=60% height=60%>
+<img src="Asserts/SequenceDiagram.png" width=70% height=70%>
 <p><i>Диаграмма последовательности</i></i></p>
 
 Результаты тестов можно посмотреть в БД (testAnts.bd). 
