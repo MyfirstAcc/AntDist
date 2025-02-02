@@ -1,6 +1,6 @@
-﻿using Microsoft.Extensions.Configuration;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
+using Microsoft.Extensions.Configuration;
 
 namespace AntColonyServer
 {
