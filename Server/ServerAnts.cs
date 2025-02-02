@@ -208,7 +208,7 @@ namespace AntColonyServer
                     _tcpClientListener = new TcpListener(_ipAddress, port);
                     _tcpClientListener.Start();
                     errorFlag = false;
-                    Console.WriteLine($"URI: ws://{_ipAddress.ToString()}:{port}");
+                    Console.WriteLine($"---> URI для WebSocket: ws://{_ipAddress.ToString()}:{port}");
 
                 }
                 catch (SocketException)
@@ -221,7 +221,7 @@ namespace AntColonyServer
 
             for (int i = 0; i < _numClients; i++)
             {
-                Console.WriteLine ($"---> Waiting for connection...{i} of {_numClients}");
+                Console.WriteLine ($"--- Waiting for connection...{i} of {_numClients}");
                 _tcpClient = await _tcpClientListener.AcceptTcpClientAsync();
 
                 _ = HandleClientAsync(_tcpClient);
@@ -240,13 +240,13 @@ namespace AntColonyServer
         private async Task HandleClientAsync(TcpClient tcpClient)
         {
             int clientId = Interlocked.Increment(ref _clientCounter);
-            Console.WriteLine($"---> Client {clientId} connected");
+            Console.WriteLine($"--- Client {clientId} connected");
 
             _stream = tcpClient.GetStream();
             WebSocket webSocket = await UpgradeToWebSocketAsync(_stream);
             if (webSocket == null)
             {
-                Console.WriteLine($"---> Client {clientId} did not complete WebSocket handshake");
+                Console.WriteLine($"--- Client {clientId} did not complete WebSocket handshake");
                 tcpClient.Close();
                 return;
             }
@@ -460,7 +460,7 @@ namespace AntColonyServer
             foreach (var item in _clients)
             {
                 _clients.TryRemove(item.Key, out _);
-                Console.WriteLine($"---> Client {item.Key} disconnected");
+                Console.WriteLine($"--- Client {item.Key} disconnected");
             }
             Console.WriteLine("Server closed");
         }

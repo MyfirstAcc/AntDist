@@ -33,7 +33,7 @@ namespace AntColonyServer
                 }
             }
 
-          
+
             Console.WriteLine($"{new string('-', 42)}");
             Console.WriteLine($"Алгоритм муравьиной оптимизации ({_typeTest})");
             Console.WriteLine($"{new string('-', 42)}");
@@ -57,7 +57,17 @@ namespace AntColonyServer
 
                 try
                 {
+                    HttpAntServer.Initialize(new UriBuilder
+                    {
+                        Scheme = "http",
+                        Host = GetLocalIPAddress(false),
+                        Port = 3000
+                    }, config.NumClients);
+
+                    var httpAnt = new HttpAntServer().startServer();
+
                     (List<int> bestItems, int bestValue, TimeSpan methodRunTimer, TimeSpan totalTime) = await server.StartServer();
+                    
                     storage.AddTestResult(testRunId, string.Join(",", bestItems), (double)bestValue, methodRunTimer.TotalSeconds, totalTime.TotalSeconds);
 
                     Console.WriteLine("\n");
