@@ -208,7 +208,9 @@ namespace AntColonyServer
                     _tcpClientListener = new TcpListener(_ipAddress, port);
                     _tcpClientListener.Start();
                     errorFlag = false;
-                    Console.WriteLine($"---> URI для WebSocket: ws://{_ipAddress.ToString()}:{port}");
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"---> WebSocket(URI): ws://{_ipAddress.ToString()}:{port} <---");
+                    Console.ResetColor();
 
                 }
                 catch (SocketException)

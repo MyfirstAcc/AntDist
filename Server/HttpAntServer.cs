@@ -48,7 +48,9 @@ namespace AntColonyServer
             string rootDirectory = "wwwroot"; // Папка с файлами
             Directory.CreateDirectory(rootDirectory); // Создаём, если её нет
 
-            Console.WriteLine($"---> HTTP-сервер запущен: {_uri} <---");
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.WriteLine($"---> HTTP-сервер запущен(URI): {_uri} <---");
+            Console.ResetColor();
             while (true) // цикл прослушки для http запросов 
             {
                 var context = await listener.GetContextAsync();
