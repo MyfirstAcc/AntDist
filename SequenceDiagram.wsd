@@ -2,18 +2,19 @@
 
 autonumber
 title Распределенный алгоритм
+skin rose
 actor User
-participant Server
-participant Client
+participant Server as "Сервер"
+participant Client as "Клиент[N]"
 
-User -> Server : Запуск сервера
+User -> Server : Запуск приложения
 activate Server
 Server -> Server : Чтение конфигурации
 Server -> Server : Создание сокетов
 Server -> Client : Удаленное включение процесса
 activate Client
 
-Client --> Server : Подключение к портам
+Client --> Server : Подключение к сокетам \nна определенный порт
 deactivate Client
 
 Server ->> Client: Отправка начальных данных
@@ -26,7 +27,7 @@ deactivate Client
 loop итерация колонии
 Server ->> Client: Отправка феромонов
 activate Client
-Client -> Client: выполнение алгоритма
+Client -> Client: Выполнение поиска решений
 Client -->> Server: Возврат локальных результатов (Решения)
 Server -> Server : Обновление лучшего результата
 Server -> Server: Обновление феромонов
@@ -35,5 +36,5 @@ deactivate Client
 end
 deactivate Server
 
-Server --> User : Получение лучшего результа
+Server --> User : Получение лучшего\n набора и  лучшей общей\n стоимости предметов 
 @enduml
