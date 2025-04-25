@@ -31,6 +31,16 @@ namespace AntColonyServer
         private int _clientCounter;                             // количество действительных клиентов
         NetworkStream _stream;                                  // Объект для работы с потоком сокета 
 
+        public event EventHandler<string> LogMessage;
+
+
+        // Метод для вызова события
+        protected virtual void OnLogMessage(string message)
+        {
+            LogMessage?.Invoke(this, message);
+        }
+
+
 
         public ServerAnts(IPAddress iPAddress, ServerConfig serverConfig)
         {
@@ -126,7 +136,7 @@ namespace AntColonyServer
             stopwatch.Stop();
 
             TimeSpan clientStartTimer = stopwatch.Elapsed;
-            Console.WriteLine($"--- Время запуска клиентских сокетов : {clientStartTimer.TotalSeconds} с.");
+            OnLogMessage($"--- Время запуска клиентских сокетов : {clientStartTimer.TotalSeconds} с.");
 
             for (int i = 0; i < _clients.Count; i++)
             {
@@ -183,10 +193,10 @@ namespace AntColonyServer
 
             stopwatch.Stop();
             TimeSpan methodRunTimer = stopwatch.Elapsed;
-            Console.WriteLine($"--- Состав предметов: {string.Join(",", bestItems)}");
-            Console.WriteLine($"--- Общая стоимость: {bestValue}");
-            Console.WriteLine($"--- Время выполнения алгоритма: {methodRunTimer.TotalSeconds} с.");
-            Console.WriteLine($"--- Общее время выполнения: {(clientStartTimer + methodRunTimer).TotalSeconds} с.");
+            OnLogMessage($"--- Состав предметов: {string.Join(",", bestItems)}");
+            OnLogMessage($"--- Общая стоимость: {bestValue}");
+            OnLogMessage($"--- Время выполнения алгоритма: {methodRunTimer.TotalSeconds} с.");
+            OnLogMessage($"--- Общее время выполнения: {(clientStartTimer + methodRunTimer).TotalSeconds} с.");
             return (bestItems, bestValue, methodRunTimer, (clientStartTimer + methodRunTimer));
 
         }
@@ -208,28 +218,28 @@ namespace AntColonyServer
                     _tcpClientListener = new TcpListener(_ipAddress, port);
                     _tcpClientListener.Start();
                     errorFlag = false;
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"---> WebSocket(URI): ws://{_ipAddress.ToString()}:{port} <---");
-                    Console.ResetColor();
+                    
+                    OnLogMessage($"---> WebSocket(URI): ws://{_ipAddress.ToString()}:{port} <---");
 
                 }
-                catch (SocketException)
+                catch (SocketException ex)
                 {
                     _inPort++;
                     errorFlag = true;
+                    OnLogMessage($"Error: {ex.Message}");
                     continue;
                 }
             }
 
             for (int i = 0; i < _numClients; i++)
             {
-                Console.WriteLine ($"--- Waiting for connection...{i} of {_numClients}");
+                OnLogMessage($"--- Waiting for connection...{i} of {_numClients}");
                 _tcpClient = await _tcpClientListener.AcceptTcpClientAsync();
 
                 _ = HandleClientAsync(_tcpClient);
                 
             }
-            Console.Write($"");
+            OnLogMessage($"");
 
         }
 
@@ -242,13 +252,13 @@ namespace AntColonyServer
         private async Task HandleClientAsync(TcpClient tcpClient)
         {
             int clientId = Interlocked.Increment(ref _clientCounter);
-            Console.WriteLine($"--- Client {clientId} connected");
+            //Console.WriteLine($"--- Client {clientId} connected");
 
             _stream = tcpClient.GetStream();
             WebSocket webSocket = await UpgradeToWebSocketAsync(_stream);
             if (webSocket == null)
             {
-                Console.WriteLine($"--- Client {clientId} did not complete WebSocket handshake");
+                OnLogMessage($"--- Client {clientId} did not complete WebSocket handshake");
                 tcpClient.Close();
                 return;
             }
@@ -449,22 +459,51 @@ namespace AntColonyServer
             {
                 nAnts[i]++;
             }
-            Console.WriteLine("Количество муравьев на клиенте: [");
-            nAnts.ForEach(x => Console.Write(" " + x));
-            Console.WriteLine("\n]");
-            Console.WriteLine($"{new string('-', 32)}");
+            OnLogMessage("Количество муравьев на клиенте: [");
+
+            string s = string.Empty;
+            nAnts.ForEach(x => s+=" " + x);
+            OnLogMessage(s);
+            OnLogMessage("\n]");
+            OnLogMessage($"{new string('-', 32)}");
             return nAnts;
         }
 
         public void CloseServer()
         {
-            // Удаляем клиента при завершении соединения
-            foreach (var item in _clients)
+            // Закрываем всех клиентов
+            foreach (var client in _clients)
             {
-                _clients.TryRemove(item.Key, out _);
-                Console.WriteLine($"--- Client {item.Key} disconnected");
+                try
+                {
+                    if (client.Value.State == WebSocketState.Open)
+                    {
+                        // Асинхронно закрываем WebSocket
+                        client.Value.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutdown", CancellationToken.None)
+                            .GetAwaiter().GetResult();
+                    }
+                    client.Value.Dispose();
+                    OnLogMessage($"--- Client {client.Key} disconnected");
+                }
+                catch (Exception ex)
+                {
+                    OnLogMessage($"--- Error disconnecting client {client.Key}: {ex.Message}");
+                }
             }
-            Console.WriteLine("Server closed");
+            _clients.Clear();
+
+            // Останавливаем TcpListener
+            try
+            {
+                _tcpClientListener?.Stop();
+                OnLogMessage("TCP Listener stopped");
+            }
+            catch (Exception ex)
+            {
+                OnLogMessage($"--- Error stopping TCP Listener: {ex.Message}");
+            }
+
+            OnLogMessage("Server closed");
         }
     }
 }

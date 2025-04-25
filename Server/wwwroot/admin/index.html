@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ-панель ACO</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/admin/styles.css">
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-2xl font-bold mb-4">Админ-панель для управления ACO</h1>
+
+        <!-- Секция управления сервером -->
+        <div class="bg-white p-4 rounded shadow mb-4">
+            <h2 class="text-xl font-semibold mb-2">Управление сервером</h2>
+            <button id="startServer" class="bg-green-500 text-white px-4 py-2 rounded mr-2">Запустить сервер</button>
+            <button id="stopServer" class="bg-red-500 text-white px-4 py-2 rounded">Остановить сервер</button>
+            <p id="serverStatus" class="mt-2"></p>
+        </div>
+
+        <!-- Секция конфигурации -->
+        <div class="bg-white p-4 rounded shadow mb-4">
+            <h2 class="text-xl font-semibold mb-2">Конфигурация</h2>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block">Alpha</label>
+                    <input id="alpha" type="number" step="0.1" class="border p-2 w-full">
+                </div>
+                <div>
+                    <label class="block">Beta</label>
+                    <input id="beta" type="number" step="0.1" class="border p-2 w-full">
+                </div>
+                <div>
+                    <label class="block">Q</label>
+                    <input id="q" type="number" step="0.1" class="border p-2 w-full">
+                </div>
+                <div>
+                    <label class="block">RHO</label>
+                    <input id="rho" type="number" step="0.01" class="border p-2 w-full">
+                </div>
+                <div>
+                    <label class="block">Max Ants</label>
+                    <input id="maxAnts" type="number" class="border p-2 w-full">
+                </div>
+                <div>
+                    <label class="block">Max Iteration</label>
+                    <input id="maxIteration" type="number" class="border p-2 w-full">
+                </div>
+                <div>
+                    <label class="block">Num Clients</label>
+                    <input id="numClients" type="number" class="border p-2 w-full">
+                </div>
+                <div>
+                    <label class="block">Count Subjects</label>
+                    <input id="countSubjects" type="number" class="border p-2 w-full">
+                </div>
+            </div>
+            <button id="saveConfig" class="bg-blue-500 text-white px-4 py-2 rounded mt-4">Сохранить конфигурацию</button>
+        </div>
+
+        <!-- Секция логов -->
+        <div class="bg-white p-4 rounded shadow mb-4">
+            <h2 class="text-xl font-semibold mb-2">Лог событий</h2>
+            <button id="clearLog" class="bg-gray-500 text-white px-4 py-2 rounded mb-2">Очистить лог</button>
+            <div id="logContainer" class="bg-gray-800 text-white p-4 rounded h-64 overflow-y-auto font-mono text-sm"></div>
+        </div>
+
+        <!-- Секция результатов -->
+        <div class="bg-white p-4 rounded shadow">
+            <h2 class="text-xl font-semibold mb-2">Результаты тестов</h2>
+            <table class="w-full border">
+                <thead>
+                    <tr class="bg-gray-200">
+                        <th class="border p-2">ID</th>
+                        <th class="border p-2">Тип теста</th>
+                        <th class="border p-2">Дата</th>
+                        <th class="border p-2">Лучшие элементы</th>
+                        <th class="border p-2">Лучшее значение</th>
+                        <th class="border p-2">Время выполнения (с)</th>
+                        <th class="border p-2">Общее время (с)</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsTable"></tbody>
+            </table>
+        </div>
+    </div>
+    <script src="/admin/script.js"></script>
+</body>
+</html>

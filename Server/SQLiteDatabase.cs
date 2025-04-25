@@ -13,58 +13,52 @@ namespace AntColonyServer
         public SQLiteDatabase(string dbFilePath)
         {
             _connectionString = $"Data Source={dbFilePath};Version=3;";
-
             InitializeDatabase();
         }
 
-        // Метод для инициализации базы данных.
-        // Создание файла и таблиц, если БД нет.
-        // Если есть, то пропускается
         private void InitializeDatabase()
         {
-            if (!File.Exists("testAnts.db"))
+            if (!File.Exists("testsAnts.db"))
             {
+                using (var connection = new SQLiteConnection(_connectionString))
                 {
-                    using (var connection = new SQLiteConnection(_connectionString))
-                    {
-                        connection.Open();
+                    connection.Open();
 
-                        string createTestRunsTable = @"
-                CREATE TABLE IF NOT EXISTS TestRuns (
-                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                TestType TEXT NOT NULL,
-                Data DATETIME NOT NULL,
-                Local INTEGER,
-                TypeProtocol TEXT NOT NULL
-                );";
+                    string createTestRunsTable = @"
+                    CREATE TABLE IF NOT EXISTS TestRuns (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        TestType TEXT NOT NULL,
+                        Data DATETIME NOT NULL,
+                        Local INTEGER,
+                        TypeProtocol TEXT NOT NULL
+                    );";
 
-                        string createTestParametersTable = @"
-                CREATE TABLE IF NOT EXISTS TestParameters (
-                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                TestRunId INTEGER NOT NULL,
-                ParameterName TEXT NOT NULL,
-                ParameterValue TEXT NOT NULL,
-                FOREIGN KEY (TestRunId) REFERENCES TestRuns(Id)
-            );";
+                    string createTestParametersTable = @"
+                    CREATE TABLE IF NOT EXISTS TestParameters (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        TestRunId INTEGER NOT NULL,
+                        ParameterName TEXT NOT NULL,
+                        ParameterValue TEXT NOT NULL,
+                        FOREIGN KEY (TestRunId) REFERENCES TestRuns(Id)
+                    );";
 
-                        string createTestResultsTable = @"
-                CREATE TABLE IF NOT EXISTS TestResults (
-                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                TestRunId INTEGER NOT NULL,
-                BestItems TEXT NOT NULL,
-                BestValue REAL NOT NULL,
-                MethodRunTime REAL NOT NULL,
-                TotalRunTime REAL NOT NULL,
-                FOREIGN KEY (TestRunId) REFERENCES TestRuns(Id)
-            );";
+                    string createTestResultsTable = @"
+                    CREATE TABLE IF NOT EXISTS TestResults (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        TestRunId INTEGER NOT NULL,
+                        BestItems TEXT NOT NULL,
+                        BestValue REAL NOT NULL,
+                        MethodRunTime REAL NOT NULL,
+                        TotalRunTime REAL NOT NULL,
+                        FOREIGN KEY (TestRunId) REFERENCES TestRuns(Id)
+                    );";
 
-                        using (var command = new SQLiteCommand(createTestRunsTable, connection))
-                            command.ExecuteNonQuery();
-                        using (var command = new SQLiteCommand(createTestParametersTable, connection))
-                            command.ExecuteNonQuery();
-                        using (var command = new SQLiteCommand(createTestResultsTable, connection))
-                            command.ExecuteNonQuery();
-                    }
+                    using (var command = new SQLiteCommand(createTestRunsTable, connection))
+                        command.ExecuteNonQuery();
+                    using (var command = new SQLiteCommand(createTestParametersTable, connection))
+                        command.ExecuteNonQuery();
+                    using (var command = new SQLiteCommand(createTestResultsTable, connection))
+                        command.ExecuteNonQuery();
                 }
             }
         }
@@ -75,9 +69,9 @@ namespace AntColonyServer
             {
                 connection.Open();
                 string insertTestRun = @"
-                    INSERT INTO TestRuns (TestType, Data, Local, TypeProtocol)
-                    VALUES (@TestType, @Data, @Local, @TypeProtocol);
-                    SELECT last_insert_rowid();";
+                INSERT INTO TestRuns (TestType, Data, Local, TypeProtocol)
+                VALUES (@TestType, @Data, @Local, @TypeProtocol);
+                SELECT last_insert_rowid();";
 
                 using (var command = new SQLiteCommand(insertTestRun, connection))
                 {
@@ -85,8 +79,6 @@ namespace AntColonyServer
                     command.Parameters.AddWithValue("@Data", startTime);
                     command.Parameters.AddWithValue("@Local", Convert.ToInt32(local));
                     command.Parameters.AddWithValue("@TypeProtocol", typeProtocol);
-
-
                     return Convert.ToInt32(command.ExecuteScalar());
                 }
             }
@@ -117,8 +109,8 @@ namespace AntColonyServer
             {
                 connection.Open();
                 string insertResult = @"
-            INSERT INTO TestResults (TestRunId, BestItems, BestValue, MethodRunTime, TotalRunTime)
-            VALUES (@TestRunId, @BestItems, @BestValue, @MethodRunTime, @TotalRunTime);";
+                INSERT INTO TestResults (TestRunId, BestItems, BestValue, MethodRunTime, TotalRunTime)
+                VALUES (@TestRunId, @BestItems, @BestValue, @MethodRunTime, @TotalRunTime);";
 
                 using (var command = new SQLiteCommand(insertResult, connection))
                 {
@@ -130,7 +122,50 @@ namespace AntColonyServer
                     command.ExecuteNonQuery();
                 }
             }
-
         }
+
+        public List<TestResult> GetTestResults()
+        {
+            var results = new List<TestResult>();
+            using (var connection = new SQLiteConnection(_connectionString))
+            {
+                connection.Open();
+                string query = @"
+                SELECT tr.Id, tr.TestType, tr.Data, res.BestItems, res.BestValue, res.MethodRunTime, res.TotalRunTime
+                FROM TestRuns tr
+                JOIN TestResults res ON tr.Id = res.TestRunId";
+                using (var command = new SQLiteCommand(query, connection))
+                {
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            results.Add(new TestResult
+                            {
+                                TestRunId = reader.GetInt32(0),
+                                TestType = reader.GetString(1),
+                                Data = reader.GetDateTime(2),
+                                BestItems = reader.GetString(3),
+                                BestValue = reader.GetDouble(4),
+                                MethodRunTime = reader.GetDouble(5),
+                                TotalRunTime = reader.GetDouble(6)
+                            });
+                        }
+                    }
+                }
+            }
+            return results;
+        }
+    }
+
+    public class TestResult
+    {
+        public int TestRunId { get; set; }
+        public string TestType { get; set; }
+        public DateTime Data { get; set; }
+        public string BestItems { get; set; }
+        public double BestValue { get; set; }
+        public double MethodRunTime { get; set; }
+        public double TotalRunTime { get; set; }
     }
 }
