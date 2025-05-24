@@ -61,46 +61,52 @@ class AntClient
 
     private (List<int> chosenItems, int currentValue) AntSolution()
     {
-        double currentWeight = 0;
-        int currentValue = 0;
-        var chosenItems = new List<int>();
-        var availableItems = Enumerable.Range(0, weights.Length).ToList();
+        double currentWeight = 0; // Текущий суммарный вес (ресурсы, wj)
+        int currentValue = 0; // Текущая суммарная ценность (cj, например, углеродное поглощение)
+        var chosenItems = new List<int>(); // Список выбранных кварталов (Sk)
+        var availableItems = Enumerable.Range(0, weights.Length).ToList(); // Множество доступных кварталов (allowed)
 
-        Random random = new Random();
+        Random random = new Random(); // Генератор случайных чисел для вероятностного выбора
 
-        while (availableItems.Count > 0)
+        while (availableItems.Count > 0) // Пока есть доступные кварталы
         {
+            // Вычисление вероятностей выбора для каждого доступного квартала (формула 1: pj^k(t))
+            // Числитель: τj(t)^α * ηj^β, где ηj = values[i] / weights[i] (ценность/вес)
             var probabilities = availableItems.Select(i =>
                 Math.Pow(pheromone[i], alpha) * Math.Pow(values[i] / weights[i], beta)).ToArray();
 
+            // Нормализация вероятностей: деление на сумму (знаменатель формулы 1)
             double sumProb = probabilities.Sum();
             var normalizedProb = probabilities.Select(p => p / sumProb).ToArray();
 
-            var cumulativeProb = new double[normalizedProb.Length];
+            // Вычисление кумулятивных вероятностей для выбора квартала
+            double[] cumulativeProb = new double[normalizedProb.Length];
             cumulativeProb[0] = normalizedProb[0];
             for (int i = 1; i < normalizedProb.Length; i++)
             {
                 cumulativeProb[i] = cumulativeProb[i - 1] + normalizedProb[i];
             }
 
+            // Вероятностный выбор квартала (на основе формулы 1)
             double r = random.NextDouble();
             int selectedItemIndex = Array.FindIndex(cumulativeProb, p => r <= p);
             int selectedItem = availableItems[selectedItemIndex];
 
+            // Проверка ограничения на ресурсы: ∑w_j ≤ W (из математической модели)
             if (currentWeight + weights[selectedItem] <= weightLimit)
             {
-                chosenItems.Add(selectedItem);
-                currentWeight += weights[selectedItem];
-                currentValue += values[selectedItem];
-                availableItems.RemoveAt(selectedItemIndex);
+                chosenItems.Add(selectedItem); // Добавление квартала в решение S_k
+                currentWeight += weights[selectedItem]; // Обновление текущего веса
+                currentValue += values[selectedItem]; // Обновление текущей ценности
+                availableItems.RemoveAt(selectedItemIndex); // Удаление выбранного квартала из allowed
             }
             else
             {
-                break;
+                break; // Прерывание, если превышен лимит ресурсов
             }
         }
 
-        return (chosenItems, currentValue);
+        return (chosenItems, currentValue); // Возврат решения Sk и его ценности c(Sk)
     }
 
     public void Close()
