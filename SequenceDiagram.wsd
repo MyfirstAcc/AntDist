@@ -11,6 +11,7 @@ User -> Server : Запуск приложения
 activate Server
 Server -> Server : Чтение конфигурации
 Server -> Server : Создание сокетов
+Server -> Server : Распределение муравьев по процессам
 Server -> Client : Удаленное включение процесса
 activate Client
 
