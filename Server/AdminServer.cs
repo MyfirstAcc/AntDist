@@ -9,6 +9,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using System.Collections.Concurrent;
 using System.Net.Sockets;
+using System.Data.SQLite;
 
 namespace AntColonyServer
 {
@@ -191,8 +192,6 @@ namespace AntColonyServer
                         {
                             _isRunning = true;
                             _server = new ServerAnts(IPAddress.Parse(GetLocalIPAddress(false)), _config);
-
-                            // Подписываемся на событие LogMessage
                             _server.LogMessage += async (sender, logMessage) => await LogEvent(logMessage);
 
                             Task.Run(async () =>
@@ -200,7 +199,6 @@ namespace AntColonyServer
                                 try
                                 {
                                     await LogEvent("Запуск сервера муравьёв...");
-
                                     var result = await _server.StartServer();
                                     int testRunId = _storage.AddTestRun(_typeTest, DateTime.Now, false, _typeTest);
                                     _storage.AddTestResult(testRunId, string.Join(",", result.bestItems), (double)result.bestValue, result.methodRunTimer.TotalSeconds, result.methodRunTimer.TotalSeconds);
@@ -243,12 +241,19 @@ namespace AntColonyServer
                         }
                         break;
 
+                    case "get_chart_data":
+                        var chartData = await _storage.GetChartDataAsync();
+                        await SendWebSocketMessage(webSocket, new { type = "chart_data", data = chartData });
+                        await LogEvent("Отправлены данные для графиков");
+                        break;
+
                     case "get_results":
                         var results = _storage.GetTestResults();
                         await SendWebSocketMessage(webSocket, new { type = "results", data = results });
                         await LogEvent("Отправлены результаты тестов");
                         break;
 
+                    
                     default:
                         await SendWebSocketMessage(webSocket, new { type = "error", message = "Неизвестный тип команды" });
                         break;
@@ -260,7 +265,6 @@ namespace AntColonyServer
                 await LogEvent($"Ошибка WebSocket: {ex.Message}");
             }
         }
-
 
         static async Task SendWebSocketMessage(WebSocket webSocket, object message)
         {

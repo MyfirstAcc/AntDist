@@ -37,6 +37,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.getElementById('numClients').value = data.data.NumClients;
                     document.getElementById('countSubjects').value = data.data.CountSubjects;
                     break;
+                case 'chart_data':
+                    renderCharts(data.data);
+                    break;
                 case 'results':
                     const tableBody = document.getElementById('resultsTable');
                     tableBody.innerHTML = '';
@@ -57,6 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'status':
                     document.getElementById('serverStatus').textContent = data.message;
                     break;
+                
                 case 'error':
                     document.getElementById('serverStatus').textContent = `Ошибка: ${data.message}`;
                     break;
@@ -87,6 +91,114 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function renderCharts(data) {
+        // Преобразование данных для графиков
+        const groupedData = {};
+        data.forEach(item => {
+            item.NumClients.forEach(clientCount => {
+                if (!groupedData[clientCount]) {
+                    groupedData[clientCount] = { bestValue: [], methodRunTime: [], startTimeClient: [] };
+                }
+                groupedData[clientCount].bestValue.push(item.BestValue);
+                groupedData[clientCount].methodRunTime.push(item.MethodRunTime);
+                groupedData[clientCount].startTimeClient.push(item.StartTimeClient);
+            });
+        });
+
+        // Вычисление средних значений
+        const chartData = Object.keys(groupedData).map(clientCount => ({
+            numClients: parseInt(clientCount),
+            avgBestValue: groupedData[clientCount].bestValue.reduce((a, b) => a + b, 0) / groupedData[clientCount].bestValue.length,
+            avgMethodRunTime: groupedData[clientCount].methodRunTime.reduce((a, b) => a + b, 0) / groupedData[clientCount].methodRunTime.length,
+            avgStartTimeClient: groupedData[clientCount].startTimeClient.reduce((a, b) => a + b, 0) / groupedData[clientCount].startTimeClient.length
+        })).sort((a, b) => a.numClients - b.numClients);
+
+        // График 1: Время выполнения и лучший результат
+        const ctx1 = document.getElementById('performanceChart').getContext('2d');
+        new Chart(ctx1, {
+            type: 'line',
+            data: {
+                labels: chartData.map(d => d.numClients),
+                datasets: [
+                    {
+                        label: 'Лучшее значение',
+                        data: chartData.map(d => d.avgBestValue),
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        yAxisID: 'y1',
+                        fill: false,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Время выполнения (с)',
+                        data: chartData.map(d => d.avgMethodRunTime),
+                        borderColor: 'rgba(255, 159, 64, 1)',
+                        yAxisID: 'y2',
+                        fill: false,
+                        borderDash: [5, 5],
+                        tension: 0.1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Количество клиентов' }
+                    },
+                    y1: {
+                        type: 'linear',
+                        position: 'left',
+                        title: { display: true, text: 'Лучшее значение' },
+                        grid: { drawOnChartArea: false }
+                    },
+                    y2: {
+                        type: 'linear',
+                        position: 'right',
+                        title: { display: true, text: 'Время выполнения (с)' },
+                        grid: { drawOnChartArea: false }
+                    }
+                },
+                plugins: {
+                    title: { display: true, text: 'Время выполнения и лучший результат vs Количество клиентов' },
+                    legend: { display: true }
+                }
+            }
+        });
+
+        // График 2: Время запуска клиентов
+        const ctx2 = document.getElementById('startTimeChart').getContext('2d');
+        new Chart(ctx2, {
+            type: 'line',
+            data: {
+                labels: chartData.map(d => d.numClients),
+                datasets: [
+                    {
+                        label: 'Время запуска клиентов (с)',
+                        data: chartData.map(d => d.avgStartTimeClient),
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        fill: false,
+                        tension: 0.1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Количество клиентов' }
+                    },
+                    y: {
+                        title: { display: true, text: 'Время запуска клиентов (с)' }
+                    }
+                },
+                plugins: {
+                    title: { display: true, text: 'Время запуска клиентов vs Количество клиентов' },
+                    legend: { display: true }
+                }
+            }
+        });
+    }
+
     function saveConfig() {
         const config = {
             Alpha: parseFloat(document.getElementById('alpha').value),
@@ -101,3 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sendWebSocketMessage({ type: 'set_config', data: config });
     }
 });
+
+
+
+

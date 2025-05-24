@@ -156,8 +156,53 @@ namespace AntColonyServer
             }
             return results;
         }
-    }
+        public async Task<List<object>> GetChartDataAsync()
+        {
+            var chartData = new List<object>();
+            using (var connection = new SQLiteConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+                string query = @"
+                    SELECT
+                        GROUP_CONCAT(
+                            CASE 
+                                WHEN TestParameters.ParameterName = 'NumClients' THEN TestParameters.ParameterValue
+                                ELSE NULL 
+                            END, ', '
+                        ) AS NumClients,
+                        TestResults.BestValue,
+                        TestResults.MethodRunTime,
+                        TestResults.TotalRunTime - TestResults.MethodRunTime As StartTimeClient  
+                    FROM 
+                        TestRuns
+                    JOIN 
+                        TestParameters ON TestRuns.Id = TestParameters.TestRunId
+                    JOIN
+                        TestResults ON TestRuns.Id = TestResults.TestRunId
+                    GROUP BY 
+                        TestRuns.Id, TestResults.BestValue, TestResults.MethodRunTime;
+                ";
 
+                using (var command = new SQLiteCommand(query, connection))
+                {
+                    using (var reader = await command.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            chartData.Add(new
+                            {
+                                NumClients = reader["NumClients"].ToString().Split(", ").Select(int.Parse).ToList(),
+                                BestValue = reader.GetDouble(reader.GetOrdinal("BestValue")),
+                                MethodRunTime = reader.GetDouble(reader.GetOrdinal("MethodRunTime")),
+                                StartTimeClient = reader.GetDouble(reader.GetOrdinal("StartTimeClient"))
+                            });
+                        }
+                    }
+                }
+            }
+            return chartData;
+        }
+    }
     public class TestResult
     {
         public int TestRunId { get; set; }

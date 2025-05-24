@@ -5,17 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Админ-панель ACO</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="/admin/styles.css">
 </head>
 <body class="bg-gray-100">
     <div class="container mx-auto p-4">
-        <h1 class="text-2xl font-bold mb-4">Админ-панель для управления ACO</h1>
+        <h1 class="text-2xl font-bold mb-4">Панель для управления параллельным ACO, задача о рюкзаке</h1>
 
         <!-- Секция управления сервером -->
         <div class="bg-white p-4 rounded shadow mb-4">
             <h2 class="text-xl font-semibold mb-2">Управление сервером</h2>
-            <button id="startServer" class="bg-green-500 text-white px-4 py-2 rounded mr-2">Запустить сервер</button>
-            <button id="stopServer" class="bg-red-500 text-white px-4 py-2 rounded">Остановить сервер</button>
+            <button id="startServer" class="bg-green-500 text-white px-4 py-2 rounded mr-2">Запустить алгоритм</button>
+            <button id="stopServer" class="bg-red-500 text-white px-4 py-2 rounded">Остановить алгоритм</button>
             <p id="serverStatus" class="mt-2"></p>
         </div>
 
@@ -67,7 +68,7 @@
         </div>
 
         <!-- Секция результатов -->
-        <div class="bg-white p-4 rounded shadow">
+        <div class="bg-white p-4 rounded shadow mb-4">
             <h2 class="text-xl font-semibold mb-2">Результаты тестов</h2>
             <table class="w-full border">
                 <thead>
@@ -83,6 +84,22 @@
                 </thead>
                 <tbody id="resultsTable"></tbody>
             </table>
+        </div>
+
+        <!-- Секция графиков -->
+        <div class="bg-white p-4 rounded shadow">
+            <h2 class="text-xl font-semibold mb-2">Графики производительности</h2>
+            <button id="loadCharts" class="bg-blue-500 text-white px-4 py-2 rounded mb-4">Загрузить графики</button>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <h3 class="text-lg font-semibold">Время выполнения и лучший результат</h3>
+                    <canvas id="performanceChart" width="400" height="200"></canvas>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold">Время запуска клиентов</h3>
+                    <canvas id="startTimeChart" width="400" height="200"></canvas>
+                </div>
+            </div>
         </div>
     </div>
     <script src="/admin/script.js"></script>
